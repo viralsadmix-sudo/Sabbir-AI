@@ -174,9 +174,10 @@ class VoiceService : Service(), RecognitionListener {
         }
 
         fun hasAny(vararg words: String): Boolean = words.any { spoken.contains(it) }
-        val asksTime = hasAny("কয়টা", "কটা", "কতটা বাজে", "সময়", "টাইম", "time")
-        val asksDate = hasAny("তারিখ", "আজকে কত", "আজ কত", "date", "দিন কী")
-        val asksOpen = hasAny("খুলে দাও", "খুলে", "খুল", "চালু কর", "ওপেন", "open", "দেখাও", "যাও")
+        // Use narrow intent phrases: broad words like "সময়" or "তারিখ" can be part of ordinary questions.
+        val asksTime = hasAny("কয়টা বাজে", "কয়টা বাজে", "কটা বাজে", "কতটা বাজে", "এখন সময় কত", "এখন সময় কত", "এখন কয়টা", "এখন কয়টা", "টাইম কত", "what time is it")
+        val asksDate = hasAny("আজকের তারিখ", "আজ কত তারিখ", "আজকে কত তারিখ", "তারিখ কত", "আজ কী বার", "আজ কি বার", "what is the date")
+        val asksOpen = hasAny("খুলে দাও", "খুলে", "খুল", "চালু কর", "ওপেন", "open", "খুলুন", "খোলো")
         val site = when {
             hasAny("ইউটিউব", "youtube") -> "youtube"
             hasAny("ফেসবুক", "facebook") -> "facebook"
@@ -197,11 +198,11 @@ class VoiceService : Service(), RecognitionListener {
                 catch (_: Exception) { say("সেটিংস খোলা যায়নি।") }
                 handler.postDelayed({ handling = false; listen() }, 2200)
             }
-            site == "youtube" -> launchApp("com.google.android.youtube", "https://m.youtube.com", "ইউটিউব অ্যাপ খুলছি")
-            site == "facebook" -> launchApp("com.facebook.katana", "https://m.facebook.com", "ফেসবুক খুলছি")
-            site == "whatsapp" -> launchApp("com.whatsapp", "https://wa.me/", "হোয়াটসঅ্যাপ খুলছি")
-            site == "maps" -> launchApp("com.google.android.apps.maps", "https://maps.google.com", "গুগল ম্যাপ খুলছি")
-            site == "browser" || site == "google" -> launch("https://www.google.com", "গুগল খুলছি")
+            site == "youtube" && asksOpen -> launchApp("com.google.android.youtube", "https://m.youtube.com", "ইউটিউব অ্যাপ খুলছি")
+            site == "facebook" && asksOpen -> launchApp("com.facebook.katana", "https://m.facebook.com", "ফেসবুক খুলছি")
+            site == "whatsapp" && asksOpen -> launchApp("com.whatsapp", "https://wa.me/", "হোয়াটসঅ্যাপ খুলছি")
+            site == "maps" && asksOpen -> launchApp("com.google.android.apps.maps", "https://maps.google.com", "গুগল ম্যাপ খুলছি")
+            (site == "browser" || site == "google") && asksOpen -> launch("https://www.google.com", "গুগল খুলছি")
             hasAny("সার্চ", "খুঁজে দাও", "খুঁজে দেখ", "খোঁজ", "অনুসন্ধান", "search") -> {
                 val query = spoken
                     .replace(Regex("^(দয়া করে |দয়া করে |একটু )"), "")
