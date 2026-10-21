@@ -125,6 +125,28 @@ class VoiceService : Service(), RecognitionListener {
         handler.postDelayed({ handling = false; listen() }, 2200)
     }
 
+    // Prefer the real installed Android app; use the website only as a fallback.
+    private fun launchApp(packageName: String, fallbackUrl: String, message: String) {
+        handling = true
+        try {
+            val appIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (appIntent != null) {
+                say(message)
+                appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(appIntent)
+            } else {
+                handling = false
+                launch(fallbackUrl, message)
+                return
+            }
+        } catch (_: Exception) {
+            handling = false
+            launch(fallbackUrl, message)
+            return
+        }
+        handler.postDelayed({ handling = false; listen() }, 2500)
+    }
+
     private fun handleCommand(raw: String) {
         // Normalize common Bengali speech-recognition variations before matching.
         val spoken = raw.lowercase(Locale.ROOT)
@@ -164,10 +186,10 @@ class VoiceService : Service(), RecognitionListener {
                 catch (_: Exception) { say("সেটিংস খোলা যায়নি।") }
                 handler.postDelayed({ handling = false; listen() }, 2200)
             }
-            site == "youtube" -> launch("https://m.youtube.com", "ইউটিউব খুলছি")
-            site == "facebook" -> launch("https://m.facebook.com", "ফেসবুক খুলছি")
-            site == "whatsapp" -> launch("https://wa.me/", "হোয়াটসঅ্যাপ খুলছি")
-            site == "maps" -> launch("https://maps.google.com", "গুগল ম্যাপ খুলছি")
+            site == "youtube" -> launchApp("com.google.android.youtube", "https://m.youtube.com", "ইউটিউব অ্যাপ খুলছি")
+            site == "facebook" -> launchApp("com.facebook.katana", "https://m.facebook.com", "ফেসবুক খুলছি")
+            site == "whatsapp" -> launchApp("com.whatsapp", "https://wa.me/", "হোয়াটসঅ্যাপ খুলছি")
+            site == "maps" -> launchApp("com.google.android.apps.maps", "https://maps.google.com", "গুগল ম্যাপ খুলছি")
             site == "browser" || site == "google" -> launch("https://www.google.com", "গুগল খুলছি")
             hasAny("সার্চ", "খুঁজে দাও", "খুঁজে দেখ", "খোঁজ", "অনুসন্ধান", "search") -> {
                 val query = spoken
