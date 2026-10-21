@@ -245,7 +245,7 @@ class VoiceService : Service(), RecognitionListener {
                         }
                         contents.put(JSONObject().put("role", "user").put("parts", org.json.JSONArray().put(JSONObject().put("text", raw))))
                         put("contents", contents)
-                        put("tools", org.json.JSONArray().put(JSONObject().put("google_search", JSONObject())))
+                        // Keep requests on the free text-generation path; Google Search grounding may have separate quota/billing limits.
                         put("generationConfig", JSONObject().put("temperature", 0.35).put("maxOutputTokens", 900))
                     }.toString()
                     OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
