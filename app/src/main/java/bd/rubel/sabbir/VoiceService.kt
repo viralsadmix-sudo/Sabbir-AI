@@ -104,34 +104,63 @@ class VoiceService : Service(), RecognitionListener {
     }
 
     private fun handleCommand(raw: String) {
-        val spoken = raw.lowercase(Locale.ROOT).trim()
+        // Normalize common Bengali speech-recognition variations before matching.
+        val spoken = raw.lowercase(Locale.ROOT)
+            .replace("য়", "য়")
+            .replace("ী", "ি")
+            .replace("ূ", "ু")
+            .replace(Regex("[।!?.,;:]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (spoken.isBlank()) {
+            say("আপনার কথা পরিষ্কার শুনতে পাইনি। একটু কাছে থেকে আবার বলুন।")
+            resumeListening(700)
+            return
+        }
+
+        val hasAny: (vararg String) -> Boolean = { words -> words.any { spoken.contains(it) } }
+        val asksTime = hasAny("কয়টা", "কটা", "কতটা বাজে", "সময়", "টাইম", "time")
+        val asksDate = hasAny("তারিখ", "আজকে কত", "আজ কত", "date", "দিন কী")
+        val asksOpen = hasAny("খুলে দাও", "খুলে", "খুল", "চালু কর", "ওপেন", "open", "দেখাও", "যাও")
+        val site = when {
+            hasAny("ইউটিউব", "youtube") -> "youtube"
+            hasAny("ফেসবুক", "facebook") -> "facebook"
+            hasAny("হোয়াটসঅ্যাপ", "হোয়াটসঅ্যাপ", "হোয়াটসাপ", "whatsapp") -> "whatsapp"
+            hasAny("গুগল ম্যাপ", "গুগলম্যাপ", "ম্যাপ", "maps") -> "maps"
+            hasAny("ক্রোম", "chrome", "ব্রাউজার", "ইন্টারনেট") -> "browser"
+            hasAny("গুগল", "google") && asksOpen -> "google"
+            else -> ""
+        }
+
         when {
-            spoken.contains("কয়টা বাজে") || spoken.contains("কটা বাজে") || spoken.contains("সময় বল") || spoken.contains("time") ->
-                say("এখন সময় " + SimpleDateFormat("hh:mm a", Locale("bn", "BD")).format(Date()))
-            spoken.contains("আজ কত তারিখ") || spoken.contains("তারিখ বল") || spoken.contains("date") ->
-                say("আজ " + SimpleDateFormat("d MMMM yyyy", Locale("bn", "BD")).format(Date()))
-            spoken.contains("ইউটিউব") || spoken.contains("youtube") -> launch("https://m.youtube.com", "ইউটিউব খুলছি")
-            (spoken.contains("গুগল") || spoken.contains("google")) && (spoken.contains("খুল") || spoken.contains("ওপেন") || spoken.contains("open")) ->
-                launch("https://www.google.com", "গুগল খুলছি")
-            spoken.contains("ফেসবুক") || spoken.contains("facebook") -> launch("https://m.facebook.com", "ফেসবুক খুলছি")
-            spoken.contains("হোয়াটসঅ্যাপ") || spoken.contains("হোয়াটসঅ্যাপ") || spoken.contains("whatsapp") ->
-                launch("https://wa.me/", "হোয়াটসঅ্যাপ খুলছি")
-            spoken.contains("গুগল ম্যাপ") || spoken.contains("ম্যাপ") || spoken.contains("maps") ->
-                launch("https://maps.google.com", "গুগল ম্যাপ খুলছি")
-            spoken.contains("সেটিংস") || spoken.contains("সেটিং") || spoken.contains("settings") -> {
+            asksTime -> say("এখন সময় " + SimpleDateFormat("hh:mm a", Locale("bn", "BD")).format(Date()))
+            asksDate -> say("আজ " + SimpleDateFormat("d MMMM yyyy", Locale("bn", "BD")).format(Date()))
+            hasAny("সেটিংস", "সেটিং", "settings") && asksOpen -> {
                 handling = true
                 say("ফোনের সেটিংস খুলছি")
-                try { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                try { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                catch (_: Exception) { say("সেটিংস খোলা যায়নি।") }
                 handler.postDelayed({ handling = false; listen() }, 2200)
             }
-            spoken.startsWith("সার্চ ") || spoken.startsWith("খুঁজে দাও ") || spoken.startsWith("গুগলে খোঁজ ") || spoken.startsWith("search ") -> {
-                val query = spoken.removePrefix("সার্চ ").removePrefix("খুঁজে দাও ").removePrefix("গুগলে খোঁজ ").removePrefix("search ").trim()
-                if (query.isNotBlank()) launch("https://www.google.com/search?q=" + Uri.encode(query), "গুগলে খুঁজছি")
-                else say("কী খুঁজব বলুন।")
+            site == "youtube" -> launch("https://m.youtube.com", "ইউটিউব খুলছি")
+            site == "facebook" -> launch("https://m.facebook.com", "ফেসবুক খুলছি")
+            site == "whatsapp" -> launch("https://wa.me/", "হোয়াটসঅ্যাপ খুলছি")
+            site == "maps" -> launch("https://maps.google.com", "গুগল ম্যাপ খুলছি")
+            site == "browser" || site == "google" -> launch("https://www.google.com", "গুগল খুলছি")
+            hasAny("সার্চ", "খুঁজে দাও", "খুঁজে দেখ", "খোঁজ", "অনুসন্ধান", "search") -> {
+                val query = spoken
+                    .replace(Regex("^(দয়া করে |দয়া করে |একটু )"), "")
+                    .replace(Regex("^(গুগলে |গুগল এ |google এ )"), "")
+                    .replace(Regex("^(সার্চ করে |সার্চ |খুঁজে দাও |খুঁজে দেখ |খুঁজে |খোঁজ |অনুসন্ধান কর |search )"), "")
+                    .replace(Regex("( করে দাও| করে দেখাও| দাও| দেখাও)$"), "")
+                    .trim()
+                if (query.isNotBlank()) launch("https://www.google.com/search?q=" + Uri.encode(query), "খুঁজে দেখছি: $query")
+                else say("কী খুঁজে দেব? বিষয়টি বলুন।")
             }
-            spoken.contains("হ্যালো") || spoken.contains("সাব্বির") || spoken.contains("সাবির") || spoken.contains("hello") ->
-                say("জি, আমি শুনছি। সময়, তারিখ, গুগল সার্চ অথবা অ্যাপ খুলতে বলতে পারেন।")
-            else -> say("কথাটি বুঝতে পারিনি। আরেকবার ধীরে বলুন।")
+            hasAny("হ্যালো", "হ্যাল", "সাব্বির", "সাবির", "hello", "hi") ->
+                say("জি, বলুন। সময় বা তারিখ জানতে, ইউটিউব খুলতে, কিংবা যেকোনো কিছু গুগলে খুঁজতে বলতে পারেন।")
+            else ->
+                say("আমি শুনেছি: $raw। এখনো এই কাজটি সরাসরি করতে পারছি না। গুগলে খুঁজতে বলুন, অথবা বলুন ইউটিউব খুলে দাও, সময় বল, কিংবা তারিখ বল।")
         }
         resumeListening()
     }
