@@ -31,6 +31,9 @@ class VoiceService : Service(), RecognitionListener {
     private var handling = false
     private var destroyed = false
     private lateinit var handler: Handler
+    private val conversation = ArrayList<Pair<String, String>>()
+    private val conversationLock = Any()
+    private var lastSpokenAnswer = ""
 
     companion object {
         const val EXTRA_TEXT_COMMAND = "bd.rubel.sabbir.TEXT_COMMAND"
@@ -210,12 +213,18 @@ class VoiceService : Service(), RecognitionListener {
                     }
                     val body = JSONObject().apply {
                         put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(
-                            JSONObject().put("text", "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। বাংলায় স্বাভাবিক, সহায়ক ও সংক্ষিপ্ত উত্তর দাও। ফোনে বাস্তবে কাজ না করলে কাজ হয়েছে বলে দাবি করবে না।"))
+                            JSONObject().put("text", "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না, আগের উত্তরের পুনরাবৃত্তি করবে না। আগের কথোপকথন দেখে পরের প্রশ্নের প্রসঙ্গ বুঝবে। নিশ্চিত না হলে অনিশ্চয়তা জানাবে; সাম্প্রতিক বা পরিবর্তনশীল তথ্য Google Search দিয়ে যাচাই করবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না। তুমি নিজে থেকে ফোনের সবকিছু নিয়ন্ত্রণ করতে পারো না; কেবল অ্যাপে বাস্তবায়িত অনুমোদিত কমান্ড চালানো সম্ভব।")
                         ))
-                        put("contents", org.json.JSONArray().put(
-                            JSONObject().put("role", "user").put("parts", org.json.JSONArray().put(JSONObject().put("text", raw)))
-                        ))
-                        put("generationConfig", JSONObject().put("temperature", 0.6).put("maxOutputTokens", 700))
+                        val contents = org.json.JSONArray()
+                        synchronized(conversationLock) {
+                            conversation.takeLast(8).forEach { (role, text) ->
+                                contents.put(JSONObject().put("role", role).put("parts", org.json.JSONArray().put(JSONObject().put("text", text))))
+                            }
+                        }
+                        contents.put(JSONObject().put("role", "user").put("parts", org.json.JSONArray().put(JSONObject().put("text", raw))))
+                        put("contents", contents)
+                        put("tools", org.json.JSONArray().put(JSONObject().put("google_search", JSONObject())))
+                        put("generationConfig", JSONObject().put("temperature", 0.35).put("maxOutputTokens", 900))
                     }.toString()
                     OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
                     val status = connection.responseCode
@@ -262,7 +271,18 @@ class VoiceService : Service(), RecognitionListener {
                 handling = false
                 val cleanAnswer = answer?.trim()?.take(2800)
                 when {
-                    !cleanAnswer.isNullOrBlank() -> say(cleanAnswer)
+                    !cleanAnswer.isNullOrBlank() -> {
+                        synchronized(conversationLock) {
+                            conversation.add("user" to raw)
+                            conversation.add("model" to cleanAnswer)
+                            while (conversation.size > 12) conversation.removeAt(0)
+                        }
+                        val finalAnswer = if (cleanAnswer == lastSpokenAnswer) {
+                            "আগের উত্তরের পুনরাবৃত্তি না করে বলছি: $cleanAnswer"
+                        } else cleanAnswer
+                        lastSpokenAnswer = cleanAnswer
+                        say(finalAnswer)
+                    }
                     failure != null -> say(failure!!)
                     else -> say("AI থেকে উত্তর আসেনি। অন্যভাবে প্রশ্ন করুন।")
                 }
