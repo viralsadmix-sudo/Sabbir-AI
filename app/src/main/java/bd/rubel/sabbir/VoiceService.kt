@@ -217,15 +217,59 @@ class VoiceService : Service(), RecognitionListener {
         thread(name = "sabbir-ai-request") {
             var answer: String? = null
             var failure: String? = null
-            var connection: HttpURLConnection? = null
+            val prefs = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
+            val openRouterKey = prefs.getString("openrouter_api_key", "").orEmpty().trim()
+            val geminiKey = prefs.getString("gemini_api_key", "").orEmpty().trim()
+            val systemPrompt = "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না। আগের কথোপকথনের প্রসঙ্গ বুঝবে। নিশ্চিত না হলে অনিশ্চয়তা জানাবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না।"
             try {
-                val apiKey = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
-                    .getString("gemini_api_key", "").orEmpty().trim()
-                if (apiKey.isBlank()) {
-                    failure = "AI চালু করতে অ্যাপের AI সংযোগ অংশে Google AI Studio API key একবার সেভ করুন।"
-                } else {
-                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + Uri.encode(apiKey)
-                    connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                if (openRouterKey.isNotBlank()) {
+                    try {
+                        val messages = org.json.JSONArray()
+                        messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+                        synchronized(conversationLock) {
+                            conversation.takeLast(8).forEach { (role, text) ->
+                                messages.put(JSONObject().put("role", if (role == "model") "assistant" else "user").put("content", text))
+                            }
+                        }
+                        messages.put(JSONObject().put("role", "user").put("content", raw))
+                        val body = JSONObject().put("model", "openrouter/free").put("messages", messages)
+                            .put("temperature", 0.35).put("max_tokens", 900).toString()
+                        val conn = (URL("https://openrouter.ai/api/v1/chat/completions").openConnection() as HttpURLConnection).apply {
+                            requestMethod = "POST"
+                            connectTimeout = 12000
+                            readTimeout = 35000
+                            doOutput = true
+                            setRequestProperty("Authorization", "Bearer $openRouterKey")
+                            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                            setRequestProperty("Accept", "application/json")
+                            setRequestProperty("HTTP-Referer", "https://github.com/viralsadmix-sudo/Sabbir-AI")
+                            setRequestProperty("X-Title", "Sabbir AI")
+                        }
+                        val responseText: String
+                        val status: Int
+                        try {
+                            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+                            status = conn.responseCode
+                            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+                            responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                        } finally { conn.disconnect() }
+                        val json = try { JSONObject(responseText) } catch (_: Exception) { null }
+                        if (status in 200..299) {
+                            answer = json?.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
+                                ?.optString("content")?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+                            if (answer.isNullOrBlank()) failure = "OpenRouter থেকে খালি উত্তর এসেছে।"
+                        } else {
+                            val detail = json?.optJSONObject("error")?.optString("message").orEmpty()
+                                .ifBlank { responseText }.replace(Regex("\\s+"), " ").take(180)
+                            failure = "OpenRouter সংযোগে সমস্যা ($status): $detail"
+                        }
+                    } catch (err: Exception) {
+                        failure = "OpenRouter-এ সংযোগ হয়নি: " + (err.message.orEmpty().take(100))
+                    }
+                }
+                if (answer.isNullOrBlank() && geminiKey.isNotBlank()) {
+                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + Uri.encode(geminiKey)
+                    val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
                         connectTimeout = 12000
                         readTimeout = 35000
@@ -233,10 +277,8 @@ class VoiceService : Service(), RecognitionListener {
                         setRequestProperty("Content-Type", "application/json; charset=utf-8")
                         setRequestProperty("Accept", "application/json")
                     }
-                    val body = JSONObject().apply {
-                        put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(
-                            JSONObject().put("text", "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না, আগের উত্তরের পুনরাবৃত্তি করবে না। আগের কথোপকথন দেখে পরের প্রশ্নের প্রসঙ্গ বুঝবে। নিশ্চিত না হলে অনিশ্চয়তা জানাবে; সাম্প্রতিক বা পরিবর্তনশীল তথ্য Google Search দিয়ে যাচাই করবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না। তুমি নিজে থেকে ফোনের সবকিছু নিয়ন্ত্রণ করতে পারো না; কেবল অ্যাপে বাস্তবায়িত অনুমোদিত কমান্ড চালানো সম্ভব।")
-                        )))
+                    val bodyJson = JSONObject().apply {
+                        put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", systemPrompt))))
                         val contents = org.json.JSONArray()
                         synchronized(conversationLock) {
                             conversation.takeLast(8).forEach { (role, text) ->
@@ -245,17 +287,19 @@ class VoiceService : Service(), RecognitionListener {
                         }
                         contents.put(JSONObject().put("role", "user").put("parts", org.json.JSONArray().put(JSONObject().put("text", raw))))
                         put("contents", contents)
-                        // Keep requests on the free text-generation path; Google Search grounding may have separate quota/billing limits.
                         put("generationConfig", JSONObject().put("temperature", 0.35).put("maxOutputTokens", 900))
                     }.toString()
-                    OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
-                    val status = connection.responseCode
-                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                    val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    val responseText: String
+                    val status: Int
+                    try {
+                        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(bodyJson) }
+                        status = conn.responseCode
+                        val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+                        responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    } finally { conn.disconnect() }
                     val json = try { JSONObject(responseText) } catch (_: Exception) { null }
                     if (status in 200..299) {
-                        val candidates = json?.optJSONArray("candidates")
-                        val parts = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+                        val parts = json?.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
                         if (parts != null) {
                             val pieces = ArrayList<String>()
                             for (i in 0 until parts.length()) {
@@ -264,63 +308,29 @@ class VoiceService : Service(), RecognitionListener {
                             }
                             answer = pieces.joinToString("\n").takeIf { it.isNotBlank() }
                         }
-                        if (answer.isNullOrBlank()) {
-                            val blockReason = json?.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
-                            failure = if (blockReason.isNotBlank()) "এই প্রশ্নটির উত্তর দেওয়া যায়নি: $blockReason" else "AI থেকে খালি উত্তর এসেছে। অন্যভাবে প্রশ্ন করুন।"
-                        }
+                        if (answer.isNullOrBlank()) failure = "Gemini থেকে খালি উত্তর এসেছে।"
                     } else {
-                        val detail = json?.optJSONObject("error")?.optString("message").orEmpty().ifBlank { responseText }
-                            .replace(Regex("\\s+"), " ").take(220)
+                        val detail = json?.optJSONObject("error")?.optString("message").orEmpty()
+                            .ifBlank { responseText }.replace(Regex("\\s+"), " ").take(180)
                         failure = when (status) {
-                            400 -> "প্রশ্ন বা API অনুরোধে সমস্যা (400): $detail"
-                            401, 403 -> "Gemini API key ভুল, নিষ্ক্রিয়, অথবা অনুমতি নেই ($status)।"
-                            429 -> {
-                                val errorObject = json?.optJSONObject("error")
-                                val details = errorObject?.optJSONArray("details")
-                                var retryDelay = ""
-                                var quotaName = ""
-                                if (details != null) {
-                                    for (i in 0 until details.length()) {
-                                        val item = details.optJSONObject(i) ?: continue
-                                        val type = item.optString("@type")
-                                        if (type.contains("RetryInfo")) {
-                                            retryDelay = item.optString("retryDelay").orEmpty()
-                                        }
-                                        if (type.contains("QuotaFailure")) {
-                                            val violations = item.optJSONArray("violations")
-                                            if (violations != null && violations.length() > 0) {
-                                                quotaName = violations.optJSONObject(0)?.optString("quotaId").orEmpty()
-                                            }
-                                        }
-                                    }
-                                }
-                                val waitText = when {
-                                    retryDelay.endsWith("s") -> {
-                                        val seconds = retryDelay.removeSuffix("s").toDoubleOrNull()
-                                        if (seconds != null && seconds >= 60) {
-                                            "প্রায় " + (seconds / 60).toInt() + " মিনিট পরে আবার চেষ্টা করুন।"
-                                        } else if (seconds != null) {
-                                            "প্রায় " + seconds.toInt() + " সেকেন্ড পরে আবার চেষ্টা করুন।"
-                                        } else "কিছুক্ষণ পরে আবার চেষ্টা করুন।"
-                                    }
-                                    quotaName.contains("PerDay", ignoreCase = true) -> "দৈনিক সীমা পূর্ণ হয়েছে; পরবর্তী কোটা রিসেট না হওয়া পর্যন্ত অপেক্ষা করতে হতে পারে।"
-                                    quotaName.contains("PerMinute", ignoreCase = true) -> "অল্প সময়ে অনেক অনুরোধ হয়েছে; এক মিনিট অপেক্ষা করে আবার চেষ্টা করুন।"
-                                    else -> "কোটা কখন রিসেট হবে, API-এর বার্তায় তা নির্দিষ্ট নেই।"
-                                }
-                                "Gemini API-এর ব্যবহারসীমা পূর্ণ হয়েছে। $waitText Google AI Studio-তে API ব্যবহারের সীমা পরীক্ষা করুন।"
-                            }
-                            502, 503 -> "AI সার্ভার এখন ব্যস্ত ($status)। একটু পরে আবার চেষ্টা করুন।"
-                            504 -> "AI সার্ভার সময়মতো উত্তর দেয়নি (504)। কিছুক্ষণ পর আবার চেষ্টা করুন।"
-                            else -> "AI সার্ভার ত্রুটি ($status): $detail"
+                            401, 403 -> "Gemini API key ভুল অথবা অনুমতি নেই ($status)।"
+                            429 -> "Gemini-এর ব্যবহারসীমা পূর্ণ হয়েছে। OpenRouter key সেভ থাকলে সেটি ব্যবহার করুন, নইলে কোটা রিসেট হওয়া পর্যন্ত অপেক্ষা করুন।"
+                            502, 503 -> "Gemini সার্ভার এখন ব্যস্ত ($status)।"
+                            else -> "Gemini সার্ভার ত্রুটি ($status): $detail"
                         }
                     }
+                }
+                if (answer.isNullOrBlank() && openRouterKey.isBlank() && geminiKey.isBlank()) {
+                    failure = "AI চালু করতে OpenRouter API key অ্যাপের OpenRouter অংশে সেভ করুন। চাইলে Gemini key-ও ব্যবহার করতে পারেন।"
+                } else if (answer.isNullOrBlank() && openRouterKey.isNotBlank() && geminiKey.isNotBlank()) {
+                    failure = "OpenRouter ও Gemini—দুটিতেই উত্তর আসেনি। " + failure.orEmpty()
+                } else if (answer.isNullOrBlank() && openRouterKey.isNotBlank()) {
+                    failure = failure ?: "OpenRouter থেকে উত্তর আসেনি। API key এবং free model limit পরীক্ষা করুন।"
                 }
             } catch (_: java.net.SocketTimeoutException) {
                 failure = "AI উত্তর দিতে বেশি সময় নিয়েছে। ইন্টারনেট পরীক্ষা করে আবার চেষ্টা করুন।"
             } catch (_: Exception) {
-                failure = "Gemini-র সঙ্গে সংযোগ হচ্ছে না। ইন্টারনেট ও API key পরীক্ষা করুন।"
-            } finally {
-                connection?.disconnect()
+                failure = "AI সংযোগে সমস্যা হয়েছে। API key ও ইন্টারনেট পরীক্ষা করুন।"
             }
             handler.post {
                 if (destroyed) return@post
@@ -333,9 +343,7 @@ class VoiceService : Service(), RecognitionListener {
                             conversation.add("model" to cleanAnswer)
                             while (conversation.size > 12) conversation.removeAt(0)
                         }
-                        val finalAnswer = if (cleanAnswer == lastSpokenAnswer) {
-                            "আগের উত্তরের পুনরাবৃত্তি না করে বলছি: $cleanAnswer"
-                        } else cleanAnswer
+                        val finalAnswer = if (cleanAnswer == lastSpokenAnswer) "আগের উত্তরের পুনরাবৃত্তি না করে বলছি: $cleanAnswer" else cleanAnswer
                         lastSpokenAnswer = cleanAnswer
                         say(finalAnswer)
                     }
