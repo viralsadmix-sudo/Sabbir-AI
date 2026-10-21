@@ -201,8 +201,8 @@ class VoiceService : Service(), RecognitionListener {
                 if (query.isNotBlank()) launch("https://www.google.com/search?q=" + Uri.encode(query), "খুঁজে দেখছি: $query")
                 else say("কী খুঁজে দেব? বিষয়টি বলুন।")
             }
-            hasAny("হ্যালো", "হ্যাল", "সাব্বির", "সাবির", "hello", "hi") ->
-                say("জি, বলুন। সময় বা তারিখ জানতে, ইউটিউব খুলতে, কিংবা যেকোনো কিছু গুগলে খুঁজতে বলতে পারেন।")
+            spoken in setOf("হ্যালো", "হ্যাল", "হ্যালো সাব্বির", "সাব্বির", "সাবির", "হাই", "hello", "hello sabbir", "hi", "সাব্বির শুনছো", "সাব্বির শুনতে পাচ্ছো") ->
+                say("জি, শুনছি। বলুন, কী জানতে চান?")
             else -> {
                 askAi(raw)
                 return
