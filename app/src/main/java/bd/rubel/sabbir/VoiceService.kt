@@ -195,92 +195,77 @@ class VoiceService : Service(), RecognitionListener {
             var failure: String? = null
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL(aiEndpoint).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 12000
-                    readTimeout = 25000
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                    setRequestProperty("Accept", "application/json")
-                }
-                val body = JSONObject().apply {
-                    put("message", raw)
-                    put("prompt", raw)
-                    put("input", raw)
-                    put("text", raw)
-                    put("query", raw)
-                    put("language", "bn")
-                }.toString()
-                OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
-                val status = connection.responseCode
-                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-                if (status in 200..299) {
-                    val json = try { JSONObject(responseText) } catch (_: Exception) { null }
-
-                    // Accept common response formats from Appwrite Functions, OpenAI-compatible
-                    // providers, and Gemini. Never treat a generic error/message field as an answer.
-                    fun extractText(obj: JSONObject?, depth: Int = 0): String? {
-                        if (obj == null || depth > 4) return null
-                        val directKeys = listOf("reply", "answer", "response", "output_text", "text", "output")
-                        for (key in directKeys) {
-                            val value = obj.opt(key)
-                            if (value is String && value.isNotBlank()) return value.trim()
-                        }
-                        val choices = obj.optJSONArray("choices")
-                        if (choices != null && choices.length() > 0) {
-                            val choice = choices.optJSONObject(0)
-                            val msg = choice?.optJSONObject("message")
-                            val choiceText = msg?.optString("content")?.takeIf { it.isNotBlank() }
-                                ?: choice?.optString("text")?.takeIf { it.isNotBlank() }
-                            if (!choiceText.isNullOrBlank()) return choiceText.trim()
-                        }
-                        val candidates = obj.optJSONArray("candidates")
-                        if (candidates != null && candidates.length() > 0) {
-                            val parts = candidates.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
-                            if (parts != null) {
-                                for (i in 0 until parts.length()) {
-                                    val partText = parts.optJSONObject(i)?.optString("text")
-                                    if (!partText.isNullOrBlank()) return partText.trim()
-                                }
-                            }
-                        }
-                        for (key in listOf("data", "result", "body")) {
-                            val nested = obj.opt(key)
-                            if (nested is JSONObject) extractText(nested, depth + 1)?.let { return it }
-                            if (nested is String && nested.trim().startsWith("{")) {
-                                try { extractText(JSONObject(nested), depth + 1)?.let { return it } } catch (_: Exception) {}
-                            }
-                        }
-                        return null
-                    }
-                    answer = extractText(json)
-                        ?: responseText.takeIf { it.isNotBlank() && !it.trimStart().startsWith("<") && json == null }
+                val apiKey = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
+                    .getString("gemini_api_key", "").orEmpty().trim()
+                if (apiKey.isBlank()) {
+                    failure = "AI চালু করতে অ্যাপের AI সংযোগ অংশে Google AI Studio API key একবার সেভ করুন।"
                 } else {
-                    val detail = responseText.replace(Regex("\\s+"), " ").take(180)
-                    failure = when (status) {
-                        504 -> "AI সার্ভার সময়মতো উত্তর দেয়নি (504 Gateway Timeout)। সার্ভারের কাজ ঠিক করতে হবে।"
-                        502, 503 -> "AI সার্ভার এখন ব্যস্ত (HTTP $status)। একটু পরে আবার চেষ্টা করুন।"
-                        401, 403 -> "AI সার্ভারের অনুমতি বা API সেটআপে সমস্যা (HTTP $status)।"
-                        else -> if (detail.isNotBlank()) "AI সার্ভার ত্রুটি (HTTP $status): $detail"
-                            else "AI সার্ভার উত্তর দেয়নি (HTTP $status)।"
+                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + Uri.encode(apiKey)
+                    connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 12000
+                        readTimeout = 35000
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                        setRequestProperty("Accept", "application/json")
+                    }
+                    val body = JSONObject().apply {
+                        put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(
+                            JSONObject().put("text", "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। বাংলায় স্বাভাবিক, সহায়ক ও সংক্ষিপ্ত উত্তর দাও। ফোনে বাস্তবে কাজ না করলে কাজ হয়েছে বলে দাবি করবে না।"))
+                        ))
+                        put("contents", org.json.JSONArray().put(
+                            JSONObject().put("role", "user").put("parts", org.json.JSONArray().put(JSONObject().put("text", raw)))
+                        ))
+                        put("generationConfig", JSONObject().put("temperature", 0.6).put("maxOutputTokens", 700))
+                    }.toString()
+                    OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    val json = try { JSONObject(responseText) } catch (_: Exception) { null }
+                    if (status in 200..299) {
+                        val candidates = json?.optJSONArray("candidates")
+                        val parts = candidates?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+                        if (parts != null) {
+                            val pieces = ArrayList<String>()
+                            for (i in 0 until parts.length()) {
+                                val piece = parts.optJSONObject(i)?.optString("text").orEmpty().trim()
+                                if (piece.isNotBlank()) pieces.add(piece)
+                            }
+                            answer = pieces.joinToString("\n").takeIf { it.isNotBlank() }
+                        }
+                        if (answer.isNullOrBlank()) {
+                            val blockReason = json?.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
+                            failure = if (blockReason.isNotBlank()) "এই প্রশ্নটির উত্তর দেওয়া যায়নি: $blockReason" else "AI থেকে খালি উত্তর এসেছে। অন্যভাবে প্রশ্ন করুন।"
+                        }
+                    } else {
+                        val detail = json?.optJSONObject("error")?.optString("message").orEmpty().ifBlank { responseText }
+                            .replace(Regex("\\s+"), " ").take(220)
+                        failure = when (status) {
+                            400 -> "প্রশ্ন বা API অনুরোধে সমস্যা (400): $detail"
+                            401, 403 -> "Gemini API key ভুল, নিষ্ক্রিয়, অথবা অনুমতি নেই ($status)।"
+                            429 -> "বিনামূল্যের AI ব্যবহারের সীমা আপাতত শেষ হয়েছে (429)। পরে আবার চেষ্টা করুন।"
+                            502, 503 -> "AI সার্ভার এখন ব্যস্ত ($status)। একটু পরে আবার চেষ্টা করুন।"
+                            504 -> "AI সার্ভার সময়মতো উত্তর দেয়নি (504)। কিছুক্ষণ পর আবার চেষ্টা করুন।"
+                            else -> "AI সার্ভার ত্রুটি ($status): $detail"
+                        }
                     }
                 }
             } catch (_: java.net.SocketTimeoutException) {
-                failure = "AI সার্ভার সময়মতো উত্তর দেয়নি। এটি সার্ভার টাইমআউট; শুধু অ্যাপ রিস্টার্ট করলে ঠিক হবে।"
+                failure = "AI উত্তর দিতে বেশি সময় নিয়েছে। ইন্টারনেট পরীক্ষা করে আবার চেষ্টা করুন।"
             } catch (_: Exception) {
-                failure = "AI-এর সঙ্গে সংযোগ হচ্ছে না। ইন্টারনেট ও AI সার্ভার পরীক্ষা করুন।"
+                failure = "Gemini-র সঙ্গে সংযোগ হচ্ছে না। ইন্টারনেট ও API key পরীক্ষা করুন।"
             } finally {
                 connection?.disconnect()
             }
             handler.post {
                 if (destroyed) return@post
                 handling = false
-                val cleanAnswer = answer?.trim()?.take(2500)
+                val cleanAnswer = answer?.trim()?.take(2800)
                 when {
                     !cleanAnswer.isNullOrBlank() -> say(cleanAnswer)
-                    failure != null -> say("$failure আপাতত সময়, তারিখ, ইউটিউব ও গুগল সার্চের কাজ করতে পারি।")
-                    else -> say("AI থেকে উত্তর আসেনি। Appwrite ফাংশনের AI সেটআপ পরীক্ষা করতে হবে।")
+                    failure != null -> say(failure!!)
+                    else -> say("AI থেকে উত্তর আসেনি। অন্যভাবে প্রশ্ন করুন।")
                 }
                 resumeListening(4000)
             }
