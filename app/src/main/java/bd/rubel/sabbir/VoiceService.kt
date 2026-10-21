@@ -118,7 +118,7 @@ class VoiceService : Service(), RecognitionListener {
             return
         }
 
-        val hasAny: (vararg String) -> Boolean = { words -> words.any { spoken.contains(it) } }
+        fun hasAny(vararg words: String): Boolean = words.any { spoken.contains(it) }
         val asksTime = hasAny("কয়টা", "কটা", "কতটা বাজে", "সময়", "টাইম", "time")
         val asksDate = hasAny("তারিখ", "আজকে কত", "আজ কত", "date", "দিন কী")
         val asksOpen = hasAny("খুলে দাও", "খুলে", "খুল", "চালু কর", "ওপেন", "open", "দেখাও", "যাও")
