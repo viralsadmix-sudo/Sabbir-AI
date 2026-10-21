@@ -34,6 +34,7 @@ class VoiceService : Service(), RecognitionListener {
     private val conversation = ArrayList<Pair<String, String>>()
     private val conversationLock = Any()
     private var lastSpokenAnswer = ""
+    private var pendingSpeech: String? = null
 
     companion object {
         const val EXTRA_TEXT_COMMAND = "bd.rubel.sabbir.TEXT_COMMAND"
@@ -74,7 +75,13 @@ class VoiceService : Service(), RecognitionListener {
             if (status == TextToSpeech.SUCCESS) {
                 tts?.setLanguage(Locale("bn", "BD"))
                 ready = true
-                say("আমি সাব্বির। বলুন, কী করতে পারি?")
+                val queued = pendingSpeech
+                pendingSpeech = null
+                if (!queued.isNullOrBlank()) {
+                    say(queued)
+                } else {
+                    say("আমি সাব্বির। বলুন, কী করতে পারি?")
+                }
             }
         }
 
@@ -106,7 +113,11 @@ class VoiceService : Service(), RecognitionListener {
     }
 
     private fun say(message: String) {
-        if (!ready || destroyed) return
+        if (destroyed) return
+        if (!ready || tts == null) {
+            pendingSpeech = message
+            return
+        }
         tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "sabbir_" + System.currentTimeMillis())
     }
 
