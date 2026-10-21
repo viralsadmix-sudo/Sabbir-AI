@@ -10,13 +10,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -26,10 +24,8 @@ class VoiceService : Service(), RecognitionListener {
     private var tts: TextToSpeech? = null
     private var ready = false
     private var handling = false
-    private var speaking = false
     private var destroyed = false
-    private val handler = Handler(Looper.getMainLooper())
-    private var retryDelay = 800L
+    private val handler = Handler(mainLooper)
 
     override fun onCreate() {
         super.onCreate()
@@ -49,96 +45,60 @@ class VoiceService : Service(), RecognitionListener {
         }
         startForeground(101, notification)
 
+        // Keep the simple, known-working TTS initialization flow.
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val languageResult = tts?.setLanguage(Locale("bn", "BD"))
+                tts?.setLanguage(Locale("bn", "BD"))
                 ready = true
-                tts?.setSpeechRate(0.92f)
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) { handler.post { speaking = true } }
-                    override fun onDone(utteranceId: String?) {
-                        handler.post {
-                            speaking = false
-                            if (!destroyed && !handling) scheduleListen(350)
-                        }
-                    }
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        handler.post { speaking = false; if (!destroyed && !handling) scheduleListen(700) }
-                    }
-                })
-                if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    say("বাংলা কণ্ঠস্বর ফোনে পুরোপুরি ইনস্টল নেই। টেক্সট টু স্পিচের বাংলা ভয়েস ইনস্টল করুন।", false)
-                } else {
-                    say("আমি সাব্বির। বলুন, কী করতে পারি?", false)
-                }
-            } else {
-                ready = false
-                startRecognition()
+                say("আমি সাব্বির। বলুন, কী করতে পারি?")
             }
         }
 
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            handler.postDelayed({ say("এই ফোনে কথা চেনার সুবিধা পাওয়া যায়নি।", false) }, 500)
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).also {
+                it.setRecognitionListener(this)
+            }
+            handler.postDelayed({ listen() }, 1800)
         } else {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this).also { it.setRecognitionListener(this) }
-            // Wait until the welcome voice finishes before opening the microphone.
-            handler.postDelayed({ if (!speaking) startRecognition() }, 1800)
+            handler.postDelayed({ say("এই ফোনে কথা বোঝার সুবিধা পাওয়া যায়নি।") }, 500)
         }
     }
 
-    private fun scheduleListen(delay: Long = 300) {
+    private fun listen() {
         if (destroyed || handling) return
-        handler.postDelayed({ if (!destroyed && !handling && !speaking) startRecognition() }, delay)
-    }
-
-    private fun startRecognition() {
-        if (destroyed || handling || speaking) return
         val speechRecognizer = recognizer ?: return
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "bn-BD")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
         try {
             speechRecognizer.startListening(i)
-            retryDelay = 800L
         } catch (_: Exception) {
-            scheduleListen(retryDelay)
-            retryDelay = (retryDelay * 2).coerceAtMost(8000L)
+            handler.postDelayed({ listen() }, 1200)
         }
     }
 
-    private fun say(message: String, resumeListening: Boolean = true) {
-        if (!ready || destroyed) {
-            if (resumeListening) scheduleListen(300)
-            return
-        }
-        speaking = true
-        val id = "sabbir_" + System.currentTimeMillis()
-        val result = tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, id)
-        if (result == TextToSpeech.ERROR) {
-            speaking = false
-            if (resumeListening) scheduleListen(500)
-        }
+    private fun say(message: String) {
+        if (!ready || destroyed) return
+        tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "sabbir_" + System.currentTimeMillis())
+    }
+
+    private fun resumeListening(delay: Long = 1800) {
+        handler.postDelayed({ if (!destroyed && !handling) listen() }, delay)
     }
 
     private fun launch(url: String, message: String) {
         handling = true
-        say(message, false)
+        say(message)
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: Exception) {
-            handling = false
             say("এই লিংকটি খোলা যায়নি।")
         }
-        handler.postDelayed({
-            handling = false
-            scheduleListen(700)
-        }, 2200)
+        handler.postDelayed({ handling = false; listen() }, 2200)
     }
 
     private fun handleCommand(raw: String) {
@@ -158,9 +118,9 @@ class VoiceService : Service(), RecognitionListener {
                 launch("https://maps.google.com", "গুগল ম্যাপ খুলছি")
             spoken.contains("সেটিংস") || spoken.contains("সেটিং") || spoken.contains("settings") -> {
                 handling = true
-                say("ফোনের সেটিংস খুলছি", false)
+                say("ফোনের সেটিংস খুলছি")
                 try { startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
-                handler.postDelayed({ handling = false; scheduleListen(700) }, 2200)
+                handler.postDelayed({ handling = false; listen() }, 2200)
             }
             spoken.startsWith("সার্চ ") || spoken.startsWith("খুঁজে দাও ") || spoken.startsWith("গুগলে খোঁজ ") || spoken.startsWith("search ") -> {
                 val query = spoken.removePrefix("সার্চ ").removePrefix("খুঁজে দাও ").removePrefix("গুগলে খোঁজ ").removePrefix("search ").trim()
@@ -169,20 +129,20 @@ class VoiceService : Service(), RecognitionListener {
             }
             spoken.contains("হ্যালো") || spoken.contains("সাব্বির") || spoken.contains("সাবির") || spoken.contains("hello") ->
                 say("জি, আমি শুনছি। সময়, তারিখ, গুগল সার্চ অথবা অ্যাপ খুলতে বলতে পারেন।")
-            else -> say("কথাটি বুঝতে পারিনি। আরেকবার ধীরে বলুন। ইন্টারনেট বন্ধ থাকলে কথা চেনা ফোনের অফলাইন ভাষা সুবিধার ওপর নির্ভর করবে।")
+            else -> say("কথাটি বুঝতে পারিনি। আরেকবার ধীরে বলুন।")
         }
+        resumeListening()
     }
 
     override fun onResults(results: Bundle?) {
         val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-        if (spoken.isNotBlank()) handleCommand(spoken) else scheduleListen(250)
+        if (spoken.isNotBlank()) handleCommand(spoken) else resumeListening(500)
     }
 
     override fun onError(error: Int) {
         if (destroyed || handling) return
-        // Do not speak on every recognition timeout; immediately reopen the listener.
-        scheduleListen(retryDelay)
-        retryDelay = (retryDelay * 2).coerceAtMost(8000L)
+        // Recognition can time out; restart quietly without stopping the assistant.
+        resumeListening(if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) 3000 else 900)
     }
 
     override fun onReadyForSpeech(params: Bundle?) {}
