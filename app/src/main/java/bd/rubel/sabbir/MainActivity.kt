@@ -163,6 +163,43 @@ class MainActivity : Activity() {
         aiCard.addView(getKey, marginParams(top = 8))
         content.addView(aiCard, marginParams(bottom = 20))
 
+        content.addView(sectionTitle("OpenRouter সংযোগ — বিকল্প AI"))
+        val openRouterCard = card()
+        openRouterCard.addView(TextView(this).apply {
+            text = "Gemini ব্যস্ত বা কোটা শেষ হলে OpenRouter ব্যবহার করা হবে। OpenRouter থেকে API key তৈরি করে এখানে সেভ করুন। প্রথমে বিনামূল্যের মডেল চেষ্টা হবে; ফ্রি ব্যবহারের সীমা থাকতে পারে।"
+            textSize = 13f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, dp(10))
+        })
+        val openRouterInput = EditText(this).apply {
+            hint = "OpenRouter API key (sk-or-...)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setHintTextColor(Color.LTGRAY)
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setSingleLine(true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(Color.rgb(19, 43, 79), 14)
+            setText(getSharedPreferences("sabbir_settings", MODE_PRIVATE).getString("openrouter_api_key", ""))
+        }
+        openRouterCard.addView(openRouterInput, LinearLayout.LayoutParams(-1, -2))
+        val saveOpenRouter = actionButton("OpenRouter key সেভ করুন", cyan, navy)
+        saveOpenRouter.setOnClickListener {
+            val key = openRouterInput.text.toString().trim()
+            if (key.isBlank()) {
+                openRouterInput.error = "OpenRouter API key দিন"
+            } else {
+                getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit().putString("openrouter_api_key", key).apply()
+                status.text = "OpenRouter বিকল্প AI key এই ফোনে সেভ হয়েছে"
+                Toast.makeText(this, "OpenRouter সংযোগ সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+            }
+        }
+        openRouterCard.addView(saveOpenRouter, marginParams(top = 10))
+        val getOpenRouter = actionButton("OpenRouter খুলুন", Color.rgb(36, 55, 86), Color.WHITE)
+        getOpenRouter.setOnClickListener { open("https://openrouter.ai/keys", "OpenRouter") }
+        openRouterCard.addView(getOpenRouter, marginParams(top = 8))
+        content.addView(openRouterCard, marginParams(bottom = 20))
+
         content.addView(sectionTitle("দ্রুত কাজ"))
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
