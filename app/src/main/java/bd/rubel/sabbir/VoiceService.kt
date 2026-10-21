@@ -205,14 +205,52 @@ class VoiceService : Service(), RecognitionListener {
                 val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 if (status in 200..299) {
                     val json = try { JSONObject(responseText) } catch (_: Exception) { null }
-                    answer = json?.let { obj ->
-                        listOf("reply", "answer", "response", "text", "message", "output", "result")
-                            .firstNotNullOfOrNull { key ->
-                                obj.opt(key)?.takeIf { it is String }?.toString()?.takeIf { it.isNotBlank() }
+
+                    // Accept common response formats from Appwrite Functions, OpenAI-compatible
+                    // providers, and Gemini. Never treat a generic error/message field as an answer.
+                    fun extractText(obj: JSONObject?, depth: Int = 0): String? {
+                        if (obj == null || depth > 4) return null
+                        val directKeys = listOf("reply", "answer", "response", "output_text", "text", "output")
+                        for (key in directKeys) {
+                            val value = obj.opt(key)
+                            if (value is String && value.isNotBlank()) return value.trim()
+                        }
+                        val choices = obj.optJSONArray("choices")
+                        if (choices != null && choices.length() > 0) {
+                            val choice = choices.optJSONObject(0)
+                            val msg = choice?.optJSONObject("message")
+                            val choiceText = msg?.optString("content")?.takeIf { it.isNotBlank() }
+                                ?: choice?.optString("text")?.takeIf { it.isNotBlank() }
+                            if (!choiceText.isNullOrBlank()) return choiceText.trim()
+                        }
+                        val candidates = obj.optJSONArray("candidates")
+                        if (candidates != null && candidates.length() > 0) {
+                            val parts = candidates.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+                            if (parts != null) {
+                                for (i in 0 until parts.length()) {
+                                    val partText = parts.optJSONObject(i)?.optString("text")
+                                    if (!partText.isNullOrBlank()) return partText.trim()
+                                }
                             }
-                    } ?: responseText.takeIf { it.isNotBlank() && !it.startsWith("<") }
+                        }
+                        for (key in listOf("data", "result", "body")) {
+                            val nested = obj.opt(key)
+                            if (nested is JSONObject) extractText(nested, depth + 1)?.let { return it }
+                            if (nested is String && nested.trim().startsWith("{")) {
+                                try { extractText(JSONObject(nested), depth + 1)?.let { return it } } catch (_: Exception) {}
+                            }
+                        }
+                        return null
+                    }
+                    answer = extractText(json)
+                        ?: responseText.takeIf { it.isNotBlank() && !it.trimStart().startsWith("<") && json == null }
                 } else {
-                    failure = "AI সার্ভার উত্তর দেয়নি (HTTP $status)।"
+                    val detail = responseText.replace(Regex("\\s+"), " ").take(180)
+                    failure = if (detail.isNotBlank()) {
+                        "AI সার্ভার ত্রুটি (HTTP $status): $detail"
+                    } else {
+                        "AI সার্ভার উত্তর দেয়নি (HTTP $status)।"
+                    }
                 }
             } catch (_: Exception) {
                 failure = "AI-এর সঙ্গে সংযোগ হচ্ছে না। ইন্টারনেট ও AI সার্ভার পরীক্ষা করুন।"
