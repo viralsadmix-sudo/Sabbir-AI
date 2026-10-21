@@ -153,8 +153,8 @@ class MainActivity : Activity() {
                 keyInput.error = "Gemini API key দিন"
             } else {
                 getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit().putString("gemini_api_key", key).apply()
-                status.text = "Gemini AI key এই ফোনে সেভ হয়েছে"
-                Toast.makeText(this, "AI সংযোগ সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+                status.text = "Gemini API key সেভ হয়েছে — প্রথম প্রশ্নে সংযোগ পরীক্ষা হবে"
+                Toast.makeText(this, "API key সেভ হয়েছে; এটি এখনো সংযোগ সফল হওয়ার প্রমাণ নয়", Toast.LENGTH_LONG).show()
             }
         }
         aiCard.addView(saveKey, marginParams(top = 10))
@@ -190,8 +190,8 @@ class MainActivity : Activity() {
                 openRouterInput.error = "OpenRouter API key দিন"
             } else {
                 getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit().putString("openrouter_api_key", key).apply()
-                status.text = "OpenRouter বিকল্প AI key এই ফোনে সেভ হয়েছে"
-                Toast.makeText(this, "OpenRouter সংযোগ সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+                status.text = "OpenRouter API key সেভ হয়েছে — প্রথম প্রশ্নে সংযোগ পরীক্ষা হবে"
+                Toast.makeText(this, "OpenRouter key সেভ হয়েছে; প্রথম প্রশ্নে সংযোগ পরীক্ষা হবে", Toast.LENGTH_LONG).show()
             }
         }
         openRouterCard.addView(saveOpenRouter, marginParams(top = 10))
