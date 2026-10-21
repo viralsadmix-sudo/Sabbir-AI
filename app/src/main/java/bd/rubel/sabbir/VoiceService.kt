@@ -199,7 +199,7 @@ class VoiceService : Service(), RecognitionListener {
                 if (apiKey.isBlank()) {
                     failure = "AI চালু করতে অ্যাপের AI সংযোগ অংশে Google AI Studio API key একবার সেভ করুন।"
                 } else {
-                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + Uri.encode(apiKey)
+                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + Uri.encode(apiKey)
                     connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
                         connectTimeout = 12000
