@@ -25,10 +25,12 @@ class VoiceService : Service(), RecognitionListener {
     private var ready = false
     private var handling = false
     private var destroyed = false
-    private val handler = Handler(mainLooper)
+    private lateinit var handler: Handler
 
     override fun onCreate() {
         super.onCreate()
+        // Service context is available only after super.onCreate(); avoid crashing during construction.
+        handler = Handler(mainLooper)
         val channel = "sabbir_voice"
         if (Build.VERSION.SDK_INT >= 26) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
