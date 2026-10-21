@@ -274,7 +274,41 @@ class VoiceService : Service(), RecognitionListener {
                         failure = when (status) {
                             400 -> "প্রশ্ন বা API অনুরোধে সমস্যা (400): $detail"
                             401, 403 -> "Gemini API key ভুল, নিষ্ক্রিয়, অথবা অনুমতি নেই ($status)।"
-                            429 -> "বিনামূল্যের AI ব্যবহারের সীমা আপাতত শেষ হয়েছে (429)। পরে আবার চেষ্টা করুন।"
+                            429 -> {
+                                val errorObject = json?.optJSONObject("error")
+                                val details = errorObject?.optJSONArray("details")
+                                var retryDelay = ""
+                                var quotaName = ""
+                                if (details != null) {
+                                    for (i in 0 until details.length()) {
+                                        val item = details.optJSONObject(i) ?: continue
+                                        val type = item.optString("@type")
+                                        if (type.contains("RetryInfo")) {
+                                            retryDelay = item.optString("retryDelay").orEmpty()
+                                        }
+                                        if (type.contains("QuotaFailure")) {
+                                            val violations = item.optJSONArray("violations")
+                                            if (violations != null && violations.length() > 0) {
+                                                quotaName = violations.optJSONObject(0)?.optString("quotaId").orEmpty()
+                                            }
+                                        }
+                                    }
+                                }
+                                val waitText = when {
+                                    retryDelay.endsWith("s") -> {
+                                        val seconds = retryDelay.removeSuffix("s").toDoubleOrNull()
+                                        if (seconds != null && seconds >= 60) {
+                                            "প্রায় " + (seconds / 60).toInt() + " মিনিট পরে আবার চেষ্টা করুন।"
+                                        } else if (seconds != null) {
+                                            "প্রায় " + seconds.toInt() + " সেকেন্ড পরে আবার চেষ্টা করুন।"
+                                        } else "কিছুক্ষণ পরে আবার চেষ্টা করুন।"
+                                    }
+                                    quotaName.contains("PerDay", ignoreCase = true) -> "দৈনিক সীমা পূর্ণ হয়েছে; পরবর্তী কোটা রিসেট না হওয়া পর্যন্ত অপেক্ষা করতে হতে পারে।"
+                                    quotaName.contains("PerMinute", ignoreCase = true) -> "অল্প সময়ে অনেক অনুরোধ হয়েছে; এক মিনিট অপেক্ষা করে আবার চেষ্টা করুন।"
+                                    else -> "কোটা কখন রিসেট হবে, API-এর বার্তায় তা নির্দিষ্ট নেই।"
+                                }
+                                "Gemini API-এর ব্যবহারসীমা পূর্ণ হয়েছে (429)। $waitText Google AI Studio-তে API usage ও quota পরীক্ষা করুন।"
+                            }
                             502, 503 -> "AI সার্ভার এখন ব্যস্ত ($status)। একটু পরে আবার চেষ্টা করুন।"
                             504 -> "AI সার্ভার সময়মতো উত্তর দেয়নি (504)। কিছুক্ষণ পর আবার চেষ্টা করুন।"
                             else -> "AI সার্ভার ত্রুটি ($status): $detail"
