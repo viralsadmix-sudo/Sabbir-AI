@@ -236,7 +236,7 @@ class VoiceService : Service(), RecognitionListener {
                     val body = JSONObject().apply {
                         put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(
                             JSONObject().put("text", "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না, আগের উত্তরের পুনরাবৃত্তি করবে না। আগের কথোপকথন দেখে পরের প্রশ্নের প্রসঙ্গ বুঝবে। নিশ্চিত না হলে অনিশ্চয়তা জানাবে; সাম্প্রতিক বা পরিবর্তনশীল তথ্য Google Search দিয়ে যাচাই করবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না। তুমি নিজে থেকে ফোনের সবকিছু নিয়ন্ত্রণ করতে পারো না; কেবল অ্যাপে বাস্তবায়িত অনুমোদিত কমান্ড চালানো সম্ভব।")
-                        ))
+                        )))
                         val contents = org.json.JSONArray()
                         synchronized(conversationLock) {
                             conversation.takeLast(8).forEach { (role, text) ->
