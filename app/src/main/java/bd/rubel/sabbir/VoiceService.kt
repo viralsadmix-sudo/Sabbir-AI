@@ -31,8 +31,21 @@ class VoiceService : Service(), RecognitionListener {
     private var handling = false
     private var destroyed = false
     private val aiEndpoint = "https://starter-function-bs1o.nyc.appwrite.run"
-    private val appwriteProjectId = "6aceec5b0017856576f7"
     private lateinit var handler: Handler
+
+    companion object {
+        const val EXTRA_TEXT_COMMAND = "bd.rubel.sabbir.TEXT_COMMAND"
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val typedCommand = intent?.getStringExtra(EXTRA_TEXT_COMMAND)?.trim().orEmpty()
+        if (typedCommand.isNotBlank()) {
+            handler.postDelayed({
+                if (!destroyed) handleCommand(typedCommand)
+            }, 900)
+        }
+        return START_STICKY
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -189,7 +202,6 @@ class VoiceService : Service(), RecognitionListener {
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     setRequestProperty("Accept", "application/json")
-                    setRequestProperty("X-Appwrite-Project", appwriteProjectId)
                 }
                 val body = JSONObject().apply {
                     put("message", raw)
@@ -246,12 +258,16 @@ class VoiceService : Service(), RecognitionListener {
                         ?: responseText.takeIf { it.isNotBlank() && !it.trimStart().startsWith("<") && json == null }
                 } else {
                     val detail = responseText.replace(Regex("\\s+"), " ").take(180)
-                    failure = if (detail.isNotBlank()) {
-                        "AI সার্ভার ত্রুটি (HTTP $status): $detail"
-                    } else {
-                        "AI সার্ভার উত্তর দেয়নি (HTTP $status)।"
+                    failure = when (status) {
+                        504 -> "AI সার্ভার সময়মতো উত্তর দেয়নি (504 Gateway Timeout)। সার্ভারের কাজ ঠিক করতে হবে।"
+                        502, 503 -> "AI সার্ভার এখন ব্যস্ত (HTTP $status)। একটু পরে আবার চেষ্টা করুন।"
+                        401, 403 -> "AI সার্ভারের অনুমতি বা API সেটআপে সমস্যা (HTTP $status)।"
+                        else -> if (detail.isNotBlank()) "AI সার্ভার ত্রুটি (HTTP $status): $detail"
+                            else "AI সার্ভার উত্তর দেয়নি (HTTP $status)।"
                     }
                 }
+            } catch (_: java.net.SocketTimeoutException) {
+                failure = "AI সার্ভার সময়মতো উত্তর দেয়নি। এটি সার্ভার টাইমআউট; শুধু অ্যাপ রিস্টার্ট করলে ঠিক হবে।"
             } catch (_: Exception) {
                 failure = "AI-এর সঙ্গে সংযোগ হচ্ছে না। ইন্টারনেট ও AI সার্ভার পরীক্ষা করুন।"
             } finally {
