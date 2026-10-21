@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
+import android.text.InputType
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -124,6 +125,43 @@ class MainActivity : Activity() {
         }
         chatCard.addView(send, marginParams(top = 10))
         content.addView(chatCard, marginParams(bottom = 20))
+
+        content.addView(sectionTitle("AI সংযোগ — একবার সেট করুন"))
+        val aiCard = card()
+        aiCard.addView(TextView(this).apply {
+            text = "Google AI Studio থেকে বিনামূল্যের Gemini API key তৈরি করে এখানে সেভ করুন। এরপর সাব্বির সরাসরি Gemini-তে প্রশ্ন পাঠাবে; Rubel Telecom/Appwrite সার্ভার লাগবে না।"
+            textSize = 13f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, dp(10))
+        })
+        val keyInput = EditText(this).apply {
+            hint = "Gemini API key"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setHintTextColor(Color.LTGRAY)
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setSingleLine(true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(Color.rgb(19, 43, 79), 14)
+            setText(getSharedPreferences("sabbir_settings", MODE_PRIVATE).getString("gemini_api_key", ""))
+        }
+        aiCard.addView(keyInput, LinearLayout.LayoutParams(-1, -2))
+        val saveKey = actionButton("API key সেভ করুন", cyan, navy)
+        saveKey.setOnClickListener {
+            val key = keyInput.text.toString().trim()
+            if (key.isBlank()) {
+                keyInput.error = "Gemini API key দিন"
+            } else {
+                getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit().putString("gemini_api_key", key).apply()
+                status.text = "Gemini AI key এই ফোনে সেভ হয়েছে"
+                Toast.makeText(this, "AI সংযোগ সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+            }
+        }
+        aiCard.addView(saveKey, marginParams(top = 10))
+        val getKey = actionButton("Google AI Studio খুলুন", Color.rgb(36, 55, 86), Color.WHITE)
+        getKey.setOnClickListener { open("https://aistudio.google.com/apikey", "Google AI Studio") }
+        aiCard.addView(getKey, marginParams(top = 8))
+        content.addView(aiCard, marginParams(bottom = 20))
 
         content.addView(sectionTitle("দ্রুত কাজ"))
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
