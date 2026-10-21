@@ -89,7 +89,6 @@ class VoiceService : Service(), RecognitionListener {
 
     private fun scheduleListen(delay: Long = 300) {
         if (destroyed || handling) return
-        handler.removeCallbacksAndMessages(null)
         handler.postDelayed({ if (!destroyed && !handling && !speaking) startRecognition() }, delay)
     }
 
