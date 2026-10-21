@@ -15,6 +15,11 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.OutputStreamWriter
+import kotlin.concurrent.thread
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,6 +30,8 @@ class VoiceService : Service(), RecognitionListener {
     private var ready = false
     private var handling = false
     private var destroyed = false
+    private val aiEndpoint = "https://starter-function-bs1o.nyc.appwrite.run"
+    private val appwriteProjectId = "6aceec5b0017856576f7"
     private lateinit var handler: Handler
 
     override fun onCreate() {
@@ -159,10 +166,71 @@ class VoiceService : Service(), RecognitionListener {
             }
             hasAny("হ্যালো", "হ্যাল", "সাব্বির", "সাবির", "hello", "hi") ->
                 say("জি, বলুন। সময় বা তারিখ জানতে, ইউটিউব খুলতে, কিংবা যেকোনো কিছু গুগলে খুঁজতে বলতে পারেন।")
-            else ->
-                say("আমি শুনেছি: $raw। এখনো এই কাজটি সরাসরি করতে পারছি না। গুগলে খুঁজতে বলুন, অথবা বলুন ইউটিউব খুলে দাও, সময় বল, কিংবা তারিখ বল।")
+            else -> {
+                askAi(raw)
+                return
+            }
         }
         resumeListening()
+    }
+
+    private fun askAi(raw: String) {
+        handling = true
+        say("একটু ভাবছি।")
+        thread(name = "sabbir-ai-request") {
+            var answer: String? = null
+            var failure: String? = null
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(aiEndpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 12000
+                    readTimeout = 25000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Appwrite-Project", appwriteProjectId)
+                }
+                val body = JSONObject().apply {
+                    put("message", raw)
+                    put("prompt", raw)
+                    put("input", raw)
+                    put("text", raw)
+                    put("query", raw)
+                    put("language", "bn")
+                }.toString()
+                OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body) }
+                val status = connection.responseCode
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                if (status in 200..299) {
+                    val json = try { JSONObject(responseText) } catch (_: Exception) { null }
+                    answer = json?.let { obj ->
+                        listOf("reply", "answer", "response", "text", "message", "output", "result")
+                            .firstNotNullOfOrNull { key ->
+                                obj.opt(key)?.takeIf { it is String }?.toString()?.takeIf { it.isNotBlank() }
+                            }
+                    } ?: responseText.takeIf { it.isNotBlank() && !it.startsWith("<") }
+                } else {
+                    failure = "AI সার্ভার উত্তর দেয়নি (HTTP $status)।"
+                }
+            } catch (_: Exception) {
+                failure = "AI-এর সঙ্গে সংযোগ হচ্ছে না। ইন্টারনেট ও AI সার্ভার পরীক্ষা করুন।"
+            } finally {
+                connection?.disconnect()
+            }
+            handler.post {
+                if (destroyed) return@post
+                handling = false
+                val cleanAnswer = answer?.trim()?.take(2500)
+                when {
+                    !cleanAnswer.isNullOrBlank() -> say(cleanAnswer)
+                    failure != null -> say("$failure আপাতত সময়, তারিখ, ইউটিউব ও গুগল সার্চের কাজ করতে পারি।")
+                    else -> say("AI থেকে উত্তর আসেনি। Appwrite ফাংশনের AI সেটআপ পরীক্ষা করতে হবে।")
+                }
+                resumeListening(4000)
+            }
+        }
     }
 
     override fun onResults(results: Bundle?) {
