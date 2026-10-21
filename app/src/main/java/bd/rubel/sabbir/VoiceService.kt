@@ -30,7 +30,6 @@ class VoiceService : Service(), RecognitionListener {
     private var ready = false
     private var handling = false
     private var destroyed = false
-    private val aiEndpoint = "https://starter-function-bs1o.nyc.appwrite.run"
     private lateinit var handler: Handler
 
     companion object {
