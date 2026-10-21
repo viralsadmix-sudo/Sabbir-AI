@@ -307,7 +307,7 @@ class VoiceService : Service(), RecognitionListener {
                                     quotaName.contains("PerMinute", ignoreCase = true) -> "অল্প সময়ে অনেক অনুরোধ হয়েছে; এক মিনিট অপেক্ষা করে আবার চেষ্টা করুন।"
                                     else -> "কোটা কখন রিসেট হবে, API-এর বার্তায় তা নির্দিষ্ট নেই।"
                                 }
-                                "Gemini API-এর ব্যবহারসীমা পূর্ণ হয়েছে (429)। $waitText Google AI Studio-তে API usage ও quota পরীক্ষা করুন।"
+                                "Gemini API-এর ব্যবহারসীমা পূর্ণ হয়েছে। $waitText Google AI Studio-তে API ব্যবহারের সীমা পরীক্ষা করুন।"
                             }
                             502, 503 -> "AI সার্ভার এখন ব্যস্ত ($status)। একটু পরে আবার চেষ্টা করুন।"
                             504 -> "AI সার্ভার সময়মতো উত্তর দেয়নি (504)। কিছুক্ষণ পর আবার চেষ্টা করুন।"
