@@ -492,56 +492,79 @@ class VoiceService : Service(), RecognitionListener {
                     }
                 }
                 if (answer.isNullOrBlank() && geminiKey.isNotBlank()) {
-                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + Uri.encode(geminiKey)
-                    val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        connectTimeout = 12000
-                        readTimeout = 35000
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                        setRequestProperty("Accept", "application/json")
-                    }
-                    val bodyJson = JSONObject().apply {
-                        put("systemInstruction", JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", systemPrompt))))
-                        val contents = org.json.JSONArray()
-                        synchronized(conversationLock) {
-                            conversation.takeLast(8).forEach { (role, text) ->
-                                contents.put(JSONObject().put("role", role).put("parts", org.json.JSONArray().put(JSONObject().put("text", text))))
-                            }
-                        }
-                        contents.put(JSONObject().put("role", "user").put("parts", org.json.JSONArray().put(JSONObject().put("text", raw))))
-                        put("contents", contents)
-                        put("generationConfig", JSONObject().put("temperature", 0.35).put("maxOutputTokens", 900))
-                    }.toString()
-                    val responseText: String
-                    val status: Int
                     try {
-                        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(bodyJson) }
-                        status = conn.responseCode
-                        val stream = if (status in 200..299) conn.inputStream else conn.errorStream
-                        responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-                    } finally { conn.disconnect() }
-                    val json = try { JSONObject(responseText) } catch (_: Exception) { null }
-                    if (status in 200..299) {
-                        val parts = json?.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
-                        if (parts != null) {
-                            val pieces = ArrayList<String>()
-                            for (i in 0 until parts.length()) {
-                                val piece = parts.optJSONObject(i)?.optString("text").orEmpty().trim()
-                                if (piece.isNotBlank()) pieces.add(piece)
+                        // Gemini 3.8 Flash uses the Interactions API.
+                        val endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+                        val inputText = buildString {
+                            append("System instructions:\\n")
+                            append(systemPrompt)
+                            append("\\n\\nConversation so far:\\n")
+                            synchronized(conversationLock) {
+                                conversation.takeLast(8).forEach { (role, text) ->
+                                    append(if (role == "model") "Assistant: " else "User: ")
+                                    append(text)
+                                    append("\\n")
+                                }
                             }
-                            answer = pieces.joinToString("\n").takeIf { it.isNotBlank() }
+                            append("\\nCurrent user message:\\n")
+                            append(raw)
                         }
-                        if (answer.isNullOrBlank()) failure = "Gemini থেকে খালি উত্তর এসেছে।"
-                    } else {
-                        val detail = json?.optJSONObject("error")?.optString("message").orEmpty()
-                            .ifBlank { responseText }.replace(Regex("\\s+"), " ").take(180)
-                        failure = when (status) {
-                            401, 403 -> "Gemini API key ভুল অথবা অনুমতি নেই ($status)।"
-                            429 -> "Gemini-এর ব্যবহারসীমা পূর্ণ হয়েছে। OpenRouter key সেভ থাকলে সেটি ব্যবহার করুন, নইলে কোটা রিসেট হওয়া পর্যন্ত অপেক্ষা করুন।"
-                            502, 503 -> "Gemini সার্ভার এখন ব্যস্ত ($status)।"
-                            else -> "Gemini সার্ভার ত্রুটি ($status): $detail"
+                        val bodyJson = JSONObject()
+                            .put("model", "gemini-3.8-flash")
+                            .put("input", inputText)
+                            .put("generation_config", JSONObject().put("thinking_level", "low"))
+                            .toString()
+                        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                            requestMethod = "POST"
+                            connectTimeout = 12000
+                            readTimeout = 45000
+                            doOutput = true
+                            setRequestProperty("x-goog-api-key", geminiKey)
+                            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                            setRequestProperty("Accept", "application/json")
                         }
+                        val responseText: String
+                        val status: Int
+                        try {
+                            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(bodyJson) }
+                            status = conn.responseCode
+                            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+                            responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                        } finally { conn.disconnect() }
+                        val json = try { JSONObject(responseText) } catch (_: Exception) { null }
+                        if (status in 200..299) {
+                            answer = json?.optString("output_text")?.trim()
+                                ?.takeIf { it.isNotBlank() && it != "null" }
+                            if (answer.isNullOrBlank()) {
+                                val steps = json?.optJSONArray("steps")
+                                if (steps != null) {
+                                    val pieces = ArrayList<String>()
+                                    for (i in 0 until steps.length()) {
+                                        val step = steps.optJSONObject(i) ?: continue
+                                        if (step.optString("type") != "model_output") continue
+                                        val parts = step.optJSONArray("content") ?: continue
+                                        for (j in 0 until parts.length()) {
+                                            val piece = parts.optJSONObject(j)?.optString("text").orEmpty().trim()
+                                            if (piece.isNotBlank()) pieces.add(piece)
+                                        }
+                                    }
+                                    answer = pieces.joinToString("\\n").takeIf { it.isNotBlank() }
+                                }
+                            }
+                            if (answer.isNullOrBlank()) failure = "Gemini থেকে খালি উত্তর এসেছে।"
+                        } else {
+                            val detail = json?.optJSONObject("error")?.optString("message").orEmpty()
+                                .ifBlank { responseText }.replace(Regex("\\s+"), " ").take(180)
+                            failure = when (status) {
+                                400, 404 -> "Gemini মডেল/API অনুরোধে সমস্যা ($status): $detail"
+                                401, 403 -> "Gemini API key ভুল অথবা অনুমতি নেই ($status)।"
+                                429 -> "Gemini-এর ব্যবহারসীমা পূর্ণ হয়েছে। পরে আবার চেষ্টা করুন।"
+                                502, 503 -> "Gemini সার্ভার এখন ব্যস্ত ($status)।"
+                                else -> "Gemini সার্ভার ত্রুটি ($status): $detail"
+                            }
+                        }
+                    } catch (err: Exception) {
+                        failure = "Gemini-তে সংযোগ হয়নি: " + (err.message.orEmpty().take(100))
                     }
                 }
                 if (answer.isNullOrBlank() && openRouterKey.isNotBlank() && geminiKey.isNotBlank()) {
