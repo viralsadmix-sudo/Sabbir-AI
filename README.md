@@ -1,10 +1,12 @@
 # Sabbir AI — বাংলা ভয়েস সহকারী
 
-Sabbir AI is a separate native Android app. It no longer calls the Rubel Telecom Appwrite function. AI questions go directly from this personal app to Google's Gemini API after the owner saves an API key on the device.
+Sabbir AI is a separate native Android app. It no longer calls the Rubel Telecom Appwrite function. AI questions use the saved OpenRouter free-model key first when available, then try Gemini as a fallback. Keys are saved on this device.
 
 ## Features
 - Custom blue Sabbir AI app logo and dark-blue home screen
 - Bengali speech recognition and spoken responses
+- Recent conversation context persists locally between assistant sessions
+- Export/restore recent conversation memory as a JSON file using Android's document picker (USB/OTG storage supported)
 - Typed questions with spoken answers
 - Direct Google Gemini Flash API connection
 - Quick actions for Google Search, YouTube, time/date, and Android Settings
@@ -15,8 +17,9 @@ Sabbir AI is a separate native Android app. It no longer calls the Rubel Telecom
 1. Install and open Sabbir AI.
 2. Open the **AI সংযোগ — একবার সেট করুন** section.
 3. Open Google AI Studio from the button and create an API key: https://aistudio.google.com/apikey
-4. Paste the key into the app and tap **API key সেভ করুন**. You only need to do this once on this phone.
+4. Paste the key into the app and tap **API key সেভ করুন**. You only need to do this once on this phone. You may instead set up OpenRouter in the separate OpenRouter section.
 5. Start the voice assistant or type a question.
+6. Use **মেমোরি ও USB ব্যাকআপ** to export or restore recent conversation history. API keys are deliberately excluded from the backup.
 
 Gemini API availability and free-tier quotas depend on Google's current account, region, and model policies. Do not share your personal APK with the key embedded in it; the key is stored on the device, not inside the APK.
 
