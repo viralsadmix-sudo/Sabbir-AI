@@ -205,6 +205,43 @@ class MainActivity : Activity() {
         openRouterCard.addView(getOpenRouter, marginParams(top = 8))
         content.addView(openRouterCard, marginParams(bottom = 20))
 
+        content.addView(sectionTitle("Groq AI সংযোগ — দ্রুত বিকল্প"))
+        val groqCard = card()
+        groqCard.addView(TextView(this).apply {
+            text = "Groq API key সেভ করলে ফ্রি AI সংযোগ ব্যর্থ হলে সাব্বির Groq-ও চেষ্টা করবে। API key এই ফোনের private settings-এ থাকবে; GitHub-এ রাখা হবে না।"
+            textSize = 13f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, dp(10))
+        })
+        val groqInput = EditText(this).apply {
+            hint = "Groq API key (gsk_...)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setHintTextColor(Color.LTGRAY)
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setSingleLine(true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(Color.rgb(19, 43, 79), 14)
+            setText(getSharedPreferences("sabbir_settings", MODE_PRIVATE).getString("groq_api_key", ""))
+        }
+        groqCard.addView(groqInput, LinearLayout.LayoutParams(-1, -2))
+        val saveGroq = actionButton("Groq API key সেভ করুন", cyan, navy)
+        saveGroq.setOnClickListener {
+            val key = groqInput.text.toString().trim()
+            if (key.isBlank()) {
+                groqInput.error = "Groq API key দিন"
+            } else {
+                getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit().putString("groq_api_key", key).apply()
+                status.text = "Groq API key সেভ হয়েছে — পরের প্রশ্নে ব্যবহার করা যাবে"
+                Toast.makeText(this, "Groq key এই ফোনে সেভ হয়েছে", Toast.LENGTH_LONG).show()
+            }
+        }
+        groqCard.addView(saveGroq, marginParams(top = 10))
+        val getGroq = actionButton("Groq Console খুলুন", Color.rgb(36, 55, 86), Color.WHITE)
+        getGroq.setOnClickListener { open("https://console.groq.com/keys", "Groq Console") }
+        groqCard.addView(getGroq, marginParams(top = 8))
+        content.addView(groqCard, marginParams(bottom = 20))
+
         content.addView(sectionTitle("দ্রুত কাজ"))
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
