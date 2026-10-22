@@ -32,6 +32,7 @@ class VoiceService : Service(), RecognitionListener {
     private var destroyed = false
     private lateinit var handler: Handler
     private val conversation = ArrayList<Pair<String, String>>()
+    private val longTermMemory = ArrayList<String>()
     private val conversationLock = Any()
     private var lastSpokenAnswer = ""
     private var pendingSpeech: String? = null
@@ -75,6 +76,33 @@ class VoiceService : Service(), RecognitionListener {
             .putString("conversation_memory_json", items.toString()).apply()
     }
 
+    private fun loadLongTermMemory() {
+        val saved = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
+            .getString("long_term_memory_json", "[]").orEmpty()
+        try {
+            val items = org.json.JSONArray(saved)
+            synchronized(conversationLock) {
+                longTermMemory.clear()
+                for (i in 0 until items.length()) {
+                    val fact = items.optString(i).trim()
+                    if (fact.isNotBlank() && !longTermMemory.contains(fact)) longTermMemory.add(fact)
+                }
+                while (longTermMemory.size > 30) longTermMemory.removeAt(0)
+            }
+        } catch (_: Exception) {
+            // A damaged memory file must not prevent the assistant from starting.
+        }
+    }
+
+    private fun saveLongTermMemory() {
+        val items = org.json.JSONArray()
+        synchronized(conversationLock) {
+            longTermMemory.takeLast(30).forEach { items.put(it) }
+        }
+        getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit()
+            .putString("long_term_memory_json", items.toString()).apply()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val typedCommand = intent?.getStringExtra(EXTRA_TEXT_COMMAND)?.trim().orEmpty()
         if (typedCommand.isNotBlank()) {
@@ -90,6 +118,7 @@ class VoiceService : Service(), RecognitionListener {
         // Service context is available only after super.onCreate(); avoid crashing during construction.
         handler = Handler(mainLooper)
         loadConversationMemory()
+        loadLongTermMemory()
         val channel = "sabbir_voice"
         if (Build.VERSION.SDK_INT >= 26) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -210,6 +239,29 @@ class VoiceService : Service(), RecognitionListener {
         }
 
         fun hasAny(vararg words: String): Boolean = words.any { spoken.contains(it) }
+
+        // Only save durable facts when the user explicitly asks; do not guess private details.
+        val rememberPrefix = listOf("আমার সম্পর্কে মনে রাখো", "এটা মনে রেখো", "এটা মনে রাখো", "মনে রেখো", "মনে রাখো", "শিখে রাখো")
+            .firstOrNull { spoken.startsWith(it) }
+        if (rememberPrefix != null) {
+            val fact = raw.trim().replaceFirst(
+                Regex("^(আমার সম্পর্কে মনে রাখো|এটা মনে রেখো|এটা মনে রাখো|মনে রেখো|মনে রাখো|শিখে রাখো)\\s*", RegexOption.IGNORE_CASE),
+                ""
+            ).trim()
+            if (fact.isNotBlank()) {
+                synchronized(conversationLock) {
+                    if (!longTermMemory.contains(fact)) longTermMemory.add(fact)
+                    while (longTermMemory.size > 30) longTermMemory.removeAt(0)
+                }
+                saveLongTermMemory()
+                say("ঠিক আছে, ফোনের মেমোরিতে মনে রাখলাম।")
+            } else {
+                say("কোন তথ্যটি মনে রাখব, সেটি বলুন।")
+            }
+            resumeListening()
+            return
+        }
+
         // Use narrow intent phrases: broad words like "সময়" or "তারিখ" can be part of ordinary questions.
         val asksTime = hasAny("কয়টা বাজে", "কয়টা বাজে", "কটা বাজে", "কতটা বাজে", "এখন সময় কত", "এখন সময় কত", "এখন কয়টা", "এখন কয়টা", "টাইম কত", "what time is it")
         val asksDate = hasAny("আজকের তারিখ", "আজ কত তারিখ", "আজকে কত তারিখ", "তারিখ কত", "আজ কী বার", "আজ কি বার", "what is the date")
@@ -268,7 +320,10 @@ class VoiceService : Service(), RecognitionListener {
             val prefs = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
             val openRouterKey = prefs.getString("openrouter_api_key", "").orEmpty().trim()
             val geminiKey = prefs.getString("gemini_api_key", "").orEmpty().trim()
-            val systemPrompt = "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না। আগের কথোপকথনের প্রসঙ্গ বুঝবে। নিশ্চিত না হলে অনিশ্চয়তা জানাবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না।"
+            val savedFacts = synchronized(conversationLock) { longTermMemory.takeLast(30).toList() }
+            val memoryContext = if (savedFacts.isEmpty()) "" else "\\n\\nব্যবহারকারীর ফোনে সংরক্ষিত দীর্ঘমেয়াদি মেমোরি (প্রাসঙ্গিক হলে ব্যবহার করবে):\\n" +
+                savedFacts.joinToString("\\n") { "- $it" }
+            val systemPrompt = "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না। আগের কথোপকথনের প্রসঙ্গ বুঝবে। ব্যবহারকারী স্পষ্টভাবে মনে রাখতে বললে সংরক্ষিত মেমোরি ব্যবহার করবে। সাধারণ জ্ঞান, বিজ্ঞান, ইতিহাস, সংস্কৃতি, প্রযুক্তি এবং অন্য মানুষ বা জনপরিচিত ব্যক্তিদের সম্পর্কে প্রশ্নেরও যথাসম্ভব উত্তর দেবে। সাম্প্রতিক বা যাচাই-না-করা তথ্য নিশ্চিতভাবে বানিয়ে বলবে না; অনিশ্চয়তা জানাবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না." + memoryContext
             try {
                 if (openRouterKey.isNotBlank()) {
                     try {
