@@ -226,7 +226,7 @@ class MainActivity : Activity() {
         content.addView(sectionTitle("মেমোরি ও USB ব্যাকআপ"))
         val memoryCard = card()
         memoryCard.addView(TextView(this).apply {
-            text = "সাব্বিরের সাম্প্রতিক কথোপকথন এই ফোনে সংরক্ষিত থাকবে। চাইলে JSON ব্যাকআপ ফাইল পেনড্রাইভে রাখুন বা পরে পুনরুদ্ধার করুন। নিরাপত্তার জন্য API key এই ব্যাকআপে থাকবে না।"
+            text = "সাম্প্রতিক কথোপকথন এবং তুমি স্পষ্টভাবে ‘মনে রাখো’ বলে শেখানো তথ্য এই ফোনে থাকবে। JSON ব্যাকআপে দুটোই থাকবে, API key থাকবে না। অন্য মানুষ ও সাধারণ বিষয় নিয়েও AI-কে প্রশ্ন করতে পারবে।"
             textSize = 13f
             setTextColor(Color.LTGRAY)
             setPadding(0, 0, 0, dp(10))
@@ -271,11 +271,17 @@ class MainActivity : Activity() {
         val uri = data?.data ?: return
         when (requestCode) {
             REQUEST_EXPORT_MEMORY -> {
-                val memory = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
-                    .getString("conversation_memory_json", "[]").orEmpty().ifBlank { "[]" }
+                val prefs = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
+                val conversation = org.json.JSONArray(prefs.getString("conversation_memory_json", "[]").orEmpty().ifBlank { "[]" })
+                val longTerm = org.json.JSONArray(prefs.getString("long_term_memory_json", "[]").orEmpty().ifBlank { "[]" })
+                val backup = org.json.JSONObject()
+                    .put("version", 2)
+                    .put("conversation", conversation)
+                    .put("longTermMemory", longTerm)
+                    .toString(2)
                 try {
                     contentResolver.openOutputStream(uri)?.use { stream ->
-                        stream.write(memory.toByteArray(Charsets.UTF_8))
+                        stream.write(backup.toByteArray(Charsets.UTF_8))
                     } ?: throw IllegalStateException("ফাইল লেখা যায়নি")
                     Toast.makeText(this, "মেমোরি ব্যাকআপ তৈরি হয়েছে", Toast.LENGTH_LONG).show()
                 } catch (_: Exception) {
@@ -286,7 +292,10 @@ class MainActivity : Activity() {
                 try {
                     val raw = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                         ?: throw IllegalStateException("ফাইল পড়া যায়নি")
-                    val source = org.json.JSONArray(raw)
+                    val parsed = org.json.JSONTokener(raw).nextValue()
+                    val source = if (parsed is org.json.JSONArray) parsed
+                        else (parsed as? org.json.JSONObject)?.optJSONArray("conversation")
+                            ?: throw IllegalArgumentException("ব্যাকআপ ফরম্যাট সঠিক নয়")
                     val clean = org.json.JSONArray()
                     for (i in 0 until source.length()) {
                         val item = source.optJSONObject(i) ?: continue
@@ -296,11 +305,22 @@ class MainActivity : Activity() {
                             clean.put(org.json.JSONObject().put("role", role).put("text", text))
                         }
                     }
-                    if (clean.length() == 0) throw IllegalArgumentException("ব্যাকআপে কথোপকথন নেই")
+                    val longTermSource = (parsed as? org.json.JSONObject)?.optJSONArray("longTermMemory") ?: org.json.JSONArray()
+                    val cleanLongTerm = org.json.JSONArray()
+                    for (i in 0 until longTermSource.length()) {
+                        val fact = longTermSource.optString(i).trim()
+                        if (fact.isNotBlank()) cleanLongTerm.put(fact)
+                    }
+                    if (clean.length() == 0 && cleanLongTerm.length() == 0) {
+                        throw IllegalArgumentException("ব্যাকআপে মেমোরি নেই")
+                    }
                     while (clean.length() > 12) clean.remove(0)
+                    while (cleanLongTerm.length() > 30) cleanLongTerm.remove(0)
                     getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit()
-                        .putString("conversation_memory_json", clean.toString()).apply()
-                    Toast.makeText(this, "মেমোরি ফিরিয়ে আনা হয়েছে। ভয়েস সহকারী বন্ধ করে আবার চালু করুন।", Toast.LENGTH_LONG).show()
+                        .putString("conversation_memory_json", clean.toString())
+                        .putString("long_term_memory_json", cleanLongTerm.toString())
+                        .apply()
+                    Toast.makeText(this, "কথোপকথন ও শেখানো মেমোরি ফিরিয়ে আনা হয়েছে। ভয়েস সহকারী বন্ধ করে আবার চালু করুন।", Toast.LENGTH_LONG).show()
                 } catch (_: Exception) {
                     Toast.makeText(this, "এই ব্যাকআপ ফাইলটি সঠিক নয় বা পড়া যায়নি।", Toast.LENGTH_LONG).show()
                 }
