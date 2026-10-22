@@ -349,7 +349,51 @@ class VoiceService : Service(), RecognitionListener {
                 savedFacts.joinToString("\\n") { "- $it" }
             val systemPrompt = "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না। আগের কথোপকথনের প্রসঙ্গ বুঝবে। ব্যবহারকারী স্পষ্টভাবে মনে রাখতে বললে সংরক্ষিত মেমোরি ব্যবহার করবে। সাধারণ জ্ঞান, বিজ্ঞান, ইতিহাস, সংস্কৃতি, প্রযুক্তি এবং অন্য মানুষ বা জনপরিচিত ব্যক্তিদের সম্পর্কে প্রশ্নেরও যথাসম্ভব উত্তর দেবে। সাম্প্রতিক বা যাচাই-না-করা তথ্য নিশ্চিতভাবে বানিয়ে বলবে না; অনিশ্চয়তা জানাবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না." + memoryContext
             try {
-                if (openRouterKey.isNotBlank()) {
+                // First try Vireonix: OpenAI-compatible online AI that currently needs no API key.
+                // It is a third-party service and may impose fair-use limits or become unavailable.
+                try {
+                    val messages = org.json.JSONArray()
+                    messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+                    synchronized(conversationLock) {
+                        conversation.takeLast(8).forEach { (role, text) ->
+                            messages.put(JSONObject().put("role", if (role == "model") "assistant" else "user").put("content", text))
+                        }
+                    }
+                    messages.put(JSONObject().put("role", "user").put("content", raw))
+                    val body = JSONObject().put("model", "auto").put("messages", messages)
+                        .put("temperature", 0.35).put("max_tokens", 900).toString()
+                    val conn = (URL("https://vireonix.ai/v1/chat/completions").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 10000
+                        readTimeout = 30000
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                        setRequestProperty("Accept", "application/json")
+                    }
+                    val responseText: String
+                    val status: Int
+                    try {
+                        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+                        status = conn.responseCode
+                        val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+                        responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                    } finally { conn.disconnect() }
+                    val json = try { JSONObject(responseText) } catch (_: Exception) { null }
+                    if (status in 200..299) {
+                        answer = json?.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
+                            ?.optString("content")?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+                        if (answer.isNullOrBlank()) failure = "API key ছাড়া AI থেকে খালি উত্তর এসেছে।"
+                    } else {
+                        val detail = json?.optJSONObject("error")?.optString("message").orEmpty()
+                            .ifBlank { responseText }.replace(Regex("\\s+"), " ").take(120)
+                        failure = "ফ্রি AI সংযোগে সমস্যা ($status): $detail"
+                    }
+                } catch (err: Exception) {
+                    failure = "API key ছাড়া AI-তে সংযোগ হয়নি: " + (err.message.orEmpty().take(80))
+                }
+
+                // If the no-key provider is unavailable, try the user's saved providers as fallbacks.
+                if (answer.isNullOrBlank() && openRouterKey.isNotBlank()) {
                     try {
                         val messages = org.json.JSONArray()
                         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -447,9 +491,7 @@ class VoiceService : Service(), RecognitionListener {
                         }
                     }
                 }
-                if (answer.isNullOrBlank() && openRouterKey.isBlank() && geminiKey.isBlank()) {
-                    failure = "AI চালু করতে OpenRouter API key অ্যাপের OpenRouter অংশে সেভ করুন। চাইলে Gemini key-ও ব্যবহার করতে পারেন।"
-                } else if (answer.isNullOrBlank() && openRouterKey.isNotBlank() && geminiKey.isNotBlank()) {
+                if (answer.isNullOrBlank() && openRouterKey.isNotBlank() && geminiKey.isNotBlank()) {
                     failure = "OpenRouter ও Gemini—দুটিতেই উত্তর আসেনি। " + failure.orEmpty()
                 } else if (answer.isNullOrBlank() && openRouterKey.isNotBlank()) {
                     failure = failure ?: "OpenRouter থেকে উত্তর আসেনি। API key এবং free model limit পরীক্ষা করুন।"
