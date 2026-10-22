@@ -39,6 +39,8 @@ class VoiceService : Service(), RecognitionListener {
     private var pendingSpeech: String? = null
     // Wait until the startup greeting finishes before opening the microphone.
     @Volatile private var listenAfterGreeting = false
+    @Volatile private var listening = false
+    @Volatile private var resumeAfterSpeech = false
 
     companion object {
         const val EXTRA_TEXT_COMMAND = "bd.rubel.sabbir.TEXT_COMMAND"
@@ -146,21 +148,11 @@ class VoiceService : Service(), RecognitionListener {
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {
-                        handler.post {
-                            if (listenAfterGreeting) {
-                                listenAfterGreeting = false
-                                if (!destroyed && !handling) listen()
-                            }
-                        }
+                        finishSpeech()
                     }
                     @Deprecated("Deprecated by Android")
                     override fun onError(utteranceId: String?) {
-                        handler.post {
-                            if (listenAfterGreeting) {
-                                listenAfterGreeting = false
-                                if (!destroyed && !handling) listen()
-                            }
-                        }
+                        finishSpeech()
                     }
                 })
                 val queued = pendingSpeech
@@ -184,9 +176,30 @@ class VoiceService : Service(), RecognitionListener {
         }
     }
 
+    // TTS and SpeechRecognizer initialize asynchronously. Retry if the greeting finishes first.
+    private fun finishSpeech() {
+        handler.post {
+            if (destroyed || handling) return@post
+            when {
+                listenAfterGreeting -> {
+                    listenAfterGreeting = false
+                    handler.postDelayed({ listen() }, 350)
+                }
+                resumeAfterSpeech -> {
+                    resumeAfterSpeech = false
+                    handler.postDelayed({ listen() }, 350)
+                }
+            }
+        }
+    }
+
     private fun listen() {
-        if (destroyed || handling) return
-        val speechRecognizer = recognizer ?: return
+        if (destroyed || handling || listening) return
+        val speechRecognizer = recognizer
+        if (speechRecognizer == null) {
+            handler.postDelayed({ listen() }, 600)
+            return
+        }
         val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
@@ -195,8 +208,10 @@ class VoiceService : Service(), RecognitionListener {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
         try {
+            listening = true
             speechRecognizer.startListening(i)
         } catch (_: Exception) {
+            listening = false
             handler.postDelayed({ listen() }, 1200)
         }
     }
@@ -211,7 +226,14 @@ class VoiceService : Service(), RecognitionListener {
     }
 
     private fun resumeListening(delay: Long = 1800) {
-        handler.postDelayed({ if (!destroyed && !handling) listen() }, delay)
+        resumeAfterSpeech = true
+        // Fallback if Android's TTS engine fails to send a completion callback.
+        handler.postDelayed({
+            if (!destroyed && !handling && resumeAfterSpeech) {
+                resumeAfterSpeech = false
+                listen()
+            }
+        }, maxOf(delay, 45000L))
     }
 
     private fun launch(url: String, message: String) {
@@ -526,14 +548,22 @@ class VoiceService : Service(), RecognitionListener {
     }
 
     override fun onResults(results: Bundle?) {
+        listening = false
         val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-        if (spoken.isNotBlank()) handleCommand(spoken) else resumeListening(500)
+        if (spoken.isNotBlank()) {
+            handleCommand(spoken)
+        } else {
+            handler.postDelayed({ listen() }, 500)
+        }
     }
 
     override fun onError(error: Int) {
+        listening = false
         if (destroyed || handling) return
         // Recognition can time out; restart quietly without stopping the assistant.
-        resumeListening(if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) 3000 else 900)
+        handler.postDelayed({
+            if (!destroyed && !handling) listen()
+        }, if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) 3000 else 900)
     }
 
     override fun onReadyForSpeech(params: Bundle?) {}
@@ -547,6 +577,8 @@ class VoiceService : Service(), RecognitionListener {
 
     override fun onDestroy() {
         destroyed = true
+        listening = false
+        resumeAfterSpeech = false
         handler.removeCallbacksAndMessages(null)
         recognizer?.destroy()
         recognizer = null
