@@ -62,7 +62,7 @@ class MainActivity : Activity() {
             setPadding(dp(14), 0, 0, 0)
         }
         titleColumn.addView(TextView(this).apply {
-            text = "Sabbir AI"
+            text = "Rumin AI"
             textSize = 29f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -97,11 +97,11 @@ class MainActivity : Activity() {
         stop.setOnClickListener {
             stopService(Intent(this, VoiceService::class.java))
             status.text = "সহকারী বন্ধ করা হয়েছে"
-            Toast.makeText(this, "সাব্বির AI বন্ধ হয়েছে", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "রুমিন AI বন্ধ হয়েছে", Toast.LENGTH_SHORT).show()
         }
         content.addView(stop, marginParams(bottom = 20))
 
-        content.addView(sectionTitle("সাব্বিরকে প্রশ্ন করুন"))
+        content.addView(sectionTitle("রুমিনকে প্রশ্ন করুন"))
         val chatCard = card()
         question = EditText(this).apply {
             hint = "যেমন: কৃত্রিম বুদ্ধিমত্তা কী?"
@@ -124,7 +124,7 @@ class MainActivity : Activity() {
                 val i = Intent(this, VoiceService::class.java)
                     .putExtra(VoiceService.EXTRA_TEXT_COMMAND, text)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i) else startService(i)
-                status.text = "প্রশ্ন পাঠানো হয়েছে — সাব্বির উত্তর দেবে"
+                status.text = "প্রশ্ন পাঠানো হয়েছে — রুমিন উত্তর দেবে"
                 question.text.clear()
             }
         }
@@ -134,7 +134,7 @@ class MainActivity : Activity() {
         content.addView(sectionTitle("AI সংযোগ — একবার সেট করুন"))
         val aiCard = card()
         aiCard.addView(TextView(this).apply {
-            text = "Google AI Studio থেকে বিনামূল্যের Gemini API key তৈরি করে এখানে সেভ করুন। এরপর সাব্বির সরাসরি Gemini-তে প্রশ্ন পাঠাবে; Rubel Telecom/Appwrite সার্ভার লাগবে না।"
+            text = "Google AI Studio থেকে বিনামূল্যের Gemini API key তৈরি করে এখানে সেভ করুন। এরপর রুমিন সরাসরি Gemini-তে প্রশ্ন পাঠাবে; Rubel Telecom/Appwrite সার্ভার লাগবে না।"
             textSize = 13f
             setTextColor(Color.LTGRAY)
             setPadding(0, 0, 0, dp(10))
@@ -208,7 +208,7 @@ class MainActivity : Activity() {
         content.addView(sectionTitle("Groq AI সংযোগ — দ্রুত বিকল্প"))
         val groqCard = card()
         groqCard.addView(TextView(this).apply {
-            text = "Groq API key সেভ করলে ফ্রি AI সংযোগ ব্যর্থ হলে সাব্বির Groq-ও চেষ্টা করবে। API key এই ফোনের private settings-এ থাকবে; GitHub-এ রাখা হবে না।"
+            text = "Groq API key সেভ করলে ফ্রি AI সংযোগ ব্যর্থ হলে রুমিন Groq-ও চেষ্টা করবে। API key এই ফোনের private settings-এ থাকবে; GitHub-এ রাখা হবে না।"
             textSize = 13f
             setTextColor(Color.LTGRAY)
             setPadding(0, 0, 0, dp(10))
@@ -373,7 +373,7 @@ class MainActivity : Activity() {
         }
         val i = Intent(this, VoiceService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i) else startService(i)
-        status.text = "● সাব্বির শুনছে — বাংলায় কথা বলুন"
+        status.text = "● রুমিন শুনছে — বাংলায় কথা বলুন"
     }
 
     private fun card() = LinearLayout(this).apply {
