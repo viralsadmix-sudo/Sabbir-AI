@@ -379,7 +379,10 @@ class MainActivity : Activity() {
     private fun card() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(14), dp(14), dp(14), dp(14))
-        background = rounded(panel, 18)
+        background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(panel, Color.rgb(8, 25, 53))).apply {
+            cornerRadius = dp(18).toFloat()
+            setStroke(dp(1), Color.rgb(25, 83, 135))
+        }
     }
 
     private fun actionButton(label: String, bg: Int, fg: Int) = Button(this).apply {
