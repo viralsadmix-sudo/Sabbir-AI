@@ -26,9 +26,10 @@ class MainActivity : Activity() {
         private const val REQUEST_IMPORT_MEMORY = 41
     }
 
-    private val navy = Color.rgb(5, 17, 39)
-    private val panel = Color.rgb(12, 32, 66)
-    private val cyan = Color.rgb(0, 200, 255)
+    private val navy = Color.rgb(7, 10, 28)
+    private val panel = Color.rgb(18, 24, 48)
+    private val cyan = Color.rgb(104, 232, 255)
+    private val violet = Color.rgb(142, 112, 255)
     private lateinit var status: TextView
     private lateinit var question: EditText
 
@@ -39,7 +40,10 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(navy)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(7, 10, 28), Color.rgb(12, 20, 48), Color.rgb(19, 13, 48))
+            )
         }
         val scroll = ScrollView(this)
         val content = LinearLayout(this).apply {
@@ -74,6 +78,53 @@ class MainActivity : Activity() {
         })
         header.addView(titleColumn, LinearLayout.LayoutParams(0, -2, 1f))
         content.addView(header)
+
+        // LIA-inspired premium hero panel: glowing AI orb and one-tap voice entry.
+        val welcome = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(18), dp(22), dp(18), dp(20))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(26, 36, 75), Color.rgb(31, 23, 72), Color.rgb(10, 43, 68))
+            ).apply {
+                cornerRadius = dp(26).toFloat()
+                setStroke(dp(1), Color.rgb(73, 103, 168))
+            }
+        }
+        val orb = ImageView(this).apply {
+            setImageResource(R.drawable.ic_sabbir_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(cyan, violet)
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(2), Color.WHITE)
+            }
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+            elevation = dp(8).toFloat()
+        }
+        welcome.addView(orb, LinearLayout.LayoutParams(dp(94), dp(94)).apply { bottomMargin = dp(12) })
+        welcome.addView(TextView(this).apply {
+            text = "Hi, I’m Rumin"
+            textSize = 25f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        welcome.addView(TextView(this).apply {
+            text = "তোমার কথা শুনতে ও সাহায্য করতে প্রস্তুত"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(190, 211, 255))
+            setPadding(0, dp(6), 0, dp(14))
+        })
+        val heroVoice = actionButton("✦  কথা বলা শুরু করুন", cyan, navy)
+        heroVoice.setOnClickListener { startAssistant() }
+        welcome.addView(heroVoice, LinearLayout.LayoutParams(-1, -2))
+        content.addView(welcome, marginParams(top = 18, bottom = 18))
+
         content.addView(TextView(this).apply {
             text = "কথা বলুন • প্রশ্ন করুন • কাজ শুরু করুন"
             textSize = 16f
