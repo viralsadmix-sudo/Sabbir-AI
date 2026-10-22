@@ -343,6 +343,7 @@ class VoiceService : Service(), RecognitionListener {
             var failure: String? = null
             val prefs = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
             val openRouterKey = prefs.getString("openrouter_api_key", "").orEmpty().trim()
+            val groqKey = prefs.getString("groq_api_key", "").orEmpty().trim()
             val geminiKey = prefs.getString("gemini_api_key", "").orEmpty().trim()
             val savedFacts = synchronized(conversationLock) { longTermMemory.takeLast(30).toList() }
             val memoryContext = if (savedFacts.isEmpty()) "" else "\\n\\nব্যবহারকারীর ফোনে সংরক্ষিত দীর্ঘমেয়াদি মেমোরি (প্রাসঙ্গিক হলে ব্যবহার করবে):\\n" +
@@ -392,7 +393,57 @@ class VoiceService : Service(), RecognitionListener {
                     failure = "API key ছাড়া AI-তে সংযোগ হয়নি: " + (err.message.orEmpty().take(80))
                 }
 
-                // If the no-key provider is unavailable, try the user's saved providers as fallbacks.
+
+                // Groq fallback: OpenAI-compatible chat completions.
+                if (answer.isNullOrBlank() && groqKey.isNotBlank()) {
+                    try {
+                        val messages = org.json.JSONArray()
+                        messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+                        synchronized(conversationLock) {
+                            conversation.takeLast(8).forEach { (role, text) ->
+                                messages.put(JSONObject().put("role", if (role == "model") "assistant" else "user").put("content", text))
+                            }
+                        }
+                        messages.put(JSONObject().put("role", "user").put("content", raw))
+                        val body = JSONObject().put("model", "llama-3.3-70b-versatile")
+                            .put("messages", messages).put("temperature", 0.35).put("max_tokens", 900).toString()
+                        val conn = (URL("https://api.groq.com/openai/v1/chat/completions").openConnection() as HttpURLConnection).apply {
+                            requestMethod = "POST"
+                            connectTimeout = 12000
+                            readTimeout = 35000
+                            doOutput = true
+                            setRequestProperty("Authorization", "Bearer $groqKey")
+                            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                            setRequestProperty("Accept", "application/json")
+                        }
+                        val responseText: String
+                        val status: Int
+                        try {
+                            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+                            status = conn.responseCode
+                            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+                            responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                        } finally { conn.disconnect() }
+                        val json = try { JSONObject(responseText) } catch (_: Exception) { null }
+                        if (status in 200..299) {
+                            answer = json?.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")
+                                ?.optString("content")?.trim()?.takeIf { it.isNotBlank() && it != "null" }
+                            if (answer.isNullOrBlank()) failure = "Groq থেকে খালি উত্তর এসেছে।"
+                        } else {
+                            val detail = json?.optJSONObject("error")?.optString("message").orEmpty()
+                                .ifBlank { responseText }.replace(Regex("\\s+"), " ").take(160)
+                            failure = when (status) {
+                                401, 403 -> "Groq API key ভুল অথবা অনুমতি নেই ($status)।"
+                                429 -> "Groq ব্যবহারের সীমা পূর্ণ হয়েছে ($status)।"
+                                else -> "Groq সংযোগে সমস্যা ($status): $detail"
+                            }
+                        }
+                    } catch (err: Exception) {
+                        failure = "Groq-এ সংযোগ হয়নি: " + err.message.orEmpty().take(80)
+                    }
+                }
+
+                // If earlier providers fail, try saved OpenRouter and Gemini providers.
                 if (answer.isNullOrBlank() && openRouterKey.isNotBlank()) {
                     try {
                         val messages = org.json.JSONArray()
