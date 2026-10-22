@@ -15,6 +15,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -36,6 +37,8 @@ class VoiceService : Service(), RecognitionListener {
     private val conversationLock = Any()
     private var lastSpokenAnswer = ""
     private var pendingSpeech: String? = null
+    // Wait until the startup greeting finishes before opening the microphone.
+    @Volatile private var listenAfterGreeting = false
 
     companion object {
         const val EXTRA_TEXT_COMMAND = "bd.rubel.sabbir.TEXT_COMMAND"
@@ -140,11 +143,32 @@ class VoiceService : Service(), RecognitionListener {
             if (status == TextToSpeech.SUCCESS) {
                 tts?.setLanguage(Locale("bn", "BD"))
                 ready = true
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        handler.post {
+                            if (listenAfterGreeting) {
+                                listenAfterGreeting = false
+                                if (!destroyed && !handling) listen()
+                            }
+                        }
+                    }
+                    @Deprecated("Deprecated by Android")
+                    override fun onError(utteranceId: String?) {
+                        handler.post {
+                            if (listenAfterGreeting) {
+                                listenAfterGreeting = false
+                                if (!destroyed && !handling) listen()
+                            }
+                        }
+                    }
+                })
                 val queued = pendingSpeech
                 pendingSpeech = null
                 if (!queued.isNullOrBlank()) {
                     say(queued)
                 } else {
+                    listenAfterGreeting = true
                     say("আমি সাব্বির। বলুন, কী করতে পারি?")
                 }
             }
@@ -154,7 +178,7 @@ class VoiceService : Service(), RecognitionListener {
             recognizer = SpeechRecognizer.createSpeechRecognizer(this).also {
                 it.setRecognitionListener(this)
             }
-            handler.postDelayed({ listen() }, 1800)
+            // Listening starts after the TTS completion callback, not during the greeting.
         } else {
             handler.postDelayed({ say("এই ফোনে কথা বোঝার সুবিধা পাওয়া যায়নি।") }, 500)
         }
