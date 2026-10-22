@@ -21,6 +21,11 @@ import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
+    companion object {
+        private const val REQUEST_EXPORT_MEMORY = 40
+        private const val REQUEST_IMPORT_MEMORY = 41
+    }
+
     private val navy = Color.rgb(5, 17, 39)
     private val panel = Color.rgb(12, 32, 66)
     private val cyan = Color.rgb(0, 200, 255)
@@ -218,6 +223,35 @@ class MainActivity : Activity() {
         grid.addView(row2)
         content.addView(grid)
 
+        content.addView(sectionTitle("মেমোরি ও USB ব্যাকআপ"))
+        val memoryCard = card()
+        memoryCard.addView(TextView(this).apply {
+            text = "সাব্বিরের সাম্প্রতিক কথোপকথন এই ফোনে সংরক্ষিত থাকবে। চাইলে JSON ব্যাকআপ ফাইল পেনড্রাইভে রাখুন বা পরে পুনরুদ্ধার করুন। নিরাপত্তার জন্য API key এই ব্যাকআপে থাকবে না।"
+            textSize = 13f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, dp(10))
+        })
+        val exportMemory = actionButton("মেমোরি ব্যাকআপ তৈরি করুন", cyan, navy)
+        exportMemory.setOnClickListener {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_TITLE, "sabbir-ai-memory.json")
+            }
+            startActivityForResult(intent, REQUEST_EXPORT_MEMORY)
+        }
+        memoryCard.addView(exportMemory, marginParams(bottom = 8))
+        val importMemory = actionButton("ব্যাকআপ থেকে মেমোরি ফিরিয়ে আনুন", Color.rgb(36, 55, 86), Color.WHITE)
+        importMemory.setOnClickListener {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+            }
+            startActivityForResult(intent, REQUEST_IMPORT_MEMORY)
+        }
+        memoryCard.addView(importMemory)
+        content.addView(memoryCard, marginParams(bottom = 20))
+
         content.addView(TextView(this).apply {
             text = "AI উত্তরের জন্য ইন্টারনেট দরকার। মাইক্রোফোন চালু রাখতে Android-এর অনুমতি ও ব্যাটারি সেটিংস প্রয়োজন হতে পারে।"
             textSize = 12f
@@ -228,6 +262,50 @@ class MainActivity : Activity() {
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 10)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 11)
+    }
+
+    @Deprecated("Uses the compatible document-picker result API")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        when (requestCode) {
+            REQUEST_EXPORT_MEMORY -> {
+                val memory = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
+                    .getString("conversation_memory_json", "[]").orEmpty().ifBlank { "[]" }
+                try {
+                    contentResolver.openOutputStream(uri)?.use { stream ->
+                        stream.write(memory.toByteArray(Charsets.UTF_8))
+                    } ?: throw IllegalStateException("ফাইল লেখা যায়নি")
+                    Toast.makeText(this, "মেমোরি ব্যাকআপ তৈরি হয়েছে", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "ব্যাকআপ লেখা যায়নি। আবার চেষ্টা করুন।", Toast.LENGTH_LONG).show()
+                }
+            }
+            REQUEST_IMPORT_MEMORY -> {
+                try {
+                    val raw = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?: throw IllegalStateException("ফাইল পড়া যায়নি")
+                    val source = org.json.JSONArray(raw)
+                    val clean = org.json.JSONArray()
+                    for (i in 0 until source.length()) {
+                        val item = source.optJSONObject(i) ?: continue
+                        val role = item.optString("role")
+                        val text = item.optString("text").trim()
+                        if ((role == "user" || role == "model") && text.isNotBlank()) {
+                            clean.put(org.json.JSONObject().put("role", role).put("text", text))
+                        }
+                    }
+                    if (clean.length() == 0) throw IllegalArgumentException("ব্যাকআপে কথোপকথন নেই")
+                    while (clean.length() > 12) clean.remove(0)
+                    getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit()
+                        .putString("conversation_memory_json", clean.toString()).apply()
+                    Toast.makeText(this, "মেমোরি ফিরিয়ে আনা হয়েছে। ভয়েস সহকারী বন্ধ করে আবার চালু করুন।", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "এই ব্যাকআপ ফাইলটি সঠিক নয় বা পড়া যায়নি।", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun startAssistant() {
