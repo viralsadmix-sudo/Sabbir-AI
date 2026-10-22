@@ -40,6 +40,41 @@ class VoiceService : Service(), RecognitionListener {
         const val EXTRA_TEXT_COMMAND = "bd.rubel.sabbir.TEXT_COMMAND"
     }
 
+    // Conversation memory is kept locally on this phone and can be exported by the user.
+    private fun loadConversationMemory() {
+        val saved = getSharedPreferences("sabbir_settings", MODE_PRIVATE)
+            .getString("conversation_memory_json", "").orEmpty()
+        if (saved.isBlank()) return
+        try {
+            val items = org.json.JSONArray(saved)
+            synchronized(conversationLock) {
+                conversation.clear()
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val role = item.optString("role")
+                    val text = item.optString("text").trim()
+                    if ((role == "user" || role == "model") && text.isNotBlank()) {
+                        conversation.add(role to text)
+                    }
+                }
+                while (conversation.size > 12) conversation.removeAt(0)
+            }
+        } catch (_: Exception) {
+            // Ignore a damaged local backup; the assistant should still start.
+        }
+    }
+
+    private fun saveConversationMemory() {
+        val items = org.json.JSONArray()
+        synchronized(conversationLock) {
+            conversation.takeLast(12).forEach { (role, text) ->
+                items.put(JSONObject().put("role", role).put("text", text))
+            }
+        }
+        getSharedPreferences("sabbir_settings", MODE_PRIVATE).edit()
+            .putString("conversation_memory_json", items.toString()).apply()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val typedCommand = intent?.getStringExtra(EXTRA_TEXT_COMMAND)?.trim().orEmpty()
         if (typedCommand.isNotBlank()) {
@@ -54,6 +89,7 @@ class VoiceService : Service(), RecognitionListener {
         super.onCreate()
         // Service context is available only after super.onCreate(); avoid crashing during construction.
         handler = Handler(mainLooper)
+        loadConversationMemory()
         val channel = "sabbir_voice"
         if (Build.VERSION.SDK_INT >= 26) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -355,6 +391,7 @@ class VoiceService : Service(), RecognitionListener {
                             conversation.add("model" to cleanAnswer)
                             while (conversation.size > 12) conversation.removeAt(0)
                         }
+                        saveConversationMemory()
                         val finalAnswer = if (cleanAnswer == lastSpokenAnswer) "আগের উত্তরের পুনরাবৃত্তি না করে বলছি: $cleanAnswer" else cleanAnswer
                         lastSpokenAnswer = cleanAnswer
                         say(finalAnswer)
