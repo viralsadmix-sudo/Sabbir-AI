@@ -1,4 +1,4 @@
-name: Build Sabbir AI APK
+name: Build Romin AI APK
 on:
   workflow_dispatch:
   push:
@@ -26,14 +26,14 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Sabbir-AI-debug-apk
+          name: Romin-AI-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish directly downloadable APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sabbir-ai-latest
-          name: Sabbir AI - Latest APK
+          tag_name: romin-ai-latest
+          name: Romin AI - Latest APK
           prerelease: true
           make_latest: true
           overwrite_files: true
