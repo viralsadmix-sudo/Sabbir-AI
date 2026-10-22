@@ -33,3 +33,12 @@ Gemini API availability and free-tier quotas depend on Google's current account,
 - Android may stop microphone listening when the app is backgrounded, battery optimization is enabled, or microphone permissions are restricted.
 - AI answers require an internet connection.
 - This is a personal assistant app. It does not silently control every phone feature; Android permissions and user confirmation remain required.
+
+
+## দীর্ঘমেয়াদি ফোন মেমোরি
+
+- Sabbir AI সাম্প্রতিক কথোপকথন ফোনে সংরক্ষণ করে।
+- ভয়েসে **“মনে রাখো, …”** বা **“মনে রেখো, …”** বললে স্পষ্টভাবে বলা তথ্য দীর্ঘমেয়াদি লোকাল মেমোরিতে সংরক্ষিত হয়।
+- মেমোরি ও USB ব্যাকআপ বিভাগ থেকে কথোপকথন এবং শেখানো তথ্য JSON ফাইলে ব্যাকআপ/পুনরুদ্ধার করা যায়।
+- ব্যাকআপে API key অন্তর্ভুক্ত হয় না। অ্যাপের ডেটা মুছে গেলে লোকাল মেমোরি হারাতে পারে; তাই মাঝে মাঝে ব্যাকআপ নিন।
+- সাধারণ জ্ঞান এবং অন্য মানুষ/বিষয় নিয়ে প্রশ্নের উত্তর দিতে OpenRouter বা Gemini API key ও ইন্টারনেট সংযোগ দরকার।
