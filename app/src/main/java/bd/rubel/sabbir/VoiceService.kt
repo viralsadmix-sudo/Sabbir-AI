@@ -142,6 +142,8 @@ class VoiceService : Service(), RecognitionListener {
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.setLanguage(Locale("bn", "BD"))
+                tts?.setSpeechRate(0.92f)
+                tts?.setPitch(1.02f)
                 ready = true
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
@@ -348,7 +350,7 @@ class VoiceService : Service(), RecognitionListener {
             val savedFacts = synchronized(conversationLock) { longTermMemory.takeLast(30).toList() }
             val memoryContext = if (savedFacts.isEmpty()) "" else "\\n\\nব্যবহারকারীর ফোনে সংরক্ষিত দীর্ঘমেয়াদি মেমোরি (প্রাসঙ্গিক হলে ব্যবহার করবে):\\n" +
                 savedFacts.joinToString("\\n") { "- $it" }
-            val systemPrompt = "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ বাংলায় উত্তর দেবে; অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না। আগের কথোপকথনের প্রসঙ্গ বুঝবে। ব্যবহারকারী স্পষ্টভাবে মনে রাখতে বললে সংরক্ষিত মেমোরি ব্যবহার করবে। সাধারণ জ্ঞান, বিজ্ঞান, ইতিহাস, সংস্কৃতি, প্রযুক্তি এবং অন্য মানুষ বা জনপরিচিত ব্যক্তিদের সম্পর্কে প্রশ্নেরও যথাসম্ভব উত্তর দেবে। সাম্প্রতিক বা যাচাই-না-করা তথ্য নিশ্চিতভাবে বানিয়ে বলবে না; অনিশ্চয়তা জানাবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না." + memoryContext
+            val systemPrompt = "তোমার নাম সাব্বির। তুমি ব্যবহারকারীর ব্যক্তিগত বাংলা AI সহকারী। প্রশ্নের সঙ্গে সরাসরি সম্পর্কিত, সঠিক, পরিষ্কার ও স্বাভাবিক উত্তর দাও। বাংলায় বললে সহজ, কথ্য ও স্পষ্ট বাংলায় উত্তর দেবে; বাক্য ছোট রাখবে, অপ্রয়োজনীয় ইংরেজি মেশাবে না, অকারণে পরিচয় দেবে না, একই কথা বারবার বলবে না। ভয়েস উত্তরে আগে মূল উত্তরটি বলবে, তারপর দরকার হলে সংক্ষিপ্ত ব্যাখ্যা দেবে। আগের কথোপকথনের প্রসঙ্গ বুঝবে। ব্যবহারকারী স্পষ্টভাবে মনে রাখতে বললে সংরক্ষিত মেমোরি ব্যবহার করবে। সাধারণ জ্ঞান, বিজ্ঞান, ইতিহাস, সংস্কৃতি, প্রযুক্তি এবং অন্য মানুষ বা জনপরিচিত ব্যক্তিদের সম্পর্কে প্রশ্নেরও যথাসম্ভব উত্তর দেবে। সাম্প্রতিক বা যাচাই-না-করা তথ্য নিশ্চিতভাবে বানিয়ে বলবে না; অনিশ্চয়তা জানাবে। ফোনে বাস্তবে কোনো কাজ সম্পন্ন না করলে কখনো কাজ হয়েছে বলে দাবি করবে না." + memoryContext
             try {
                 // First try Vireonix: OpenAI-compatible online AI that currently needs no API key.
                 // It is a third-party service and may impose fair-use limits or become unavailable.
